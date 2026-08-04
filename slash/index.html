@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>乱刃 · 斩击大乱斗</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #0b0d12;
+    font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+    color: #e8ecf4; user-select: none; }
+  #game { position: absolute; inset: 0; display: block; cursor: crosshair; }
+
+  /* ===== 配装菜单 ===== */
+  #menu { position: absolute; inset: 0; z-index: 10; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 18px; padding: 24px;
+    background: radial-gradient(ellipse at 50% 30%, #181d2b 0%, #0b0d12 70%); overflow-y: auto; }
+  #menu h1 { font-size: 52px; letter-spacing: 18px; text-indent: 18px; font-weight: 800;
+    background: linear-gradient(180deg, #fff 20%, #8fb7ff 60%, #4a6cff 100%);
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+  #menu .sub { color: #8a93a8; font-size: 14px; letter-spacing: 2px; margin-top: -8px; }
+
+  #slots { display: flex; gap: 16px; margin-top: 6px; }
+  .slot { width: 220px; height: 64px; border: 1px solid #2c3448; border-radius: 10px;
+    background: #12161f; display: flex; align-items: center; gap: 12px; padding: 0 14px;
+    cursor: pointer; transition: border-color .15s, box-shadow .15s; position: relative; }
+  .slot:hover { border-color: #4a556e; }
+  .slot .glyph { width: 38px; height: 38px; border-radius: 8px; display: flex; align-items: center;
+    justify-content: center; font-size: 20px; font-weight: 700; background: #1c2230; color: #5b6478; flex: none; }
+  .slot .meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .slot .meta b { font-size: 15px; }
+  .slot .meta span { font-size: 11px; color: #7a8296; }
+  .slot.filled { border-color: var(--c); box-shadow: 0 0 18px -4px var(--c); }
+  .slot.filled .glyph { background: var(--c); color: #0b0d12; }
+  .slot .key-tag { position: absolute; top: -9px; left: 10px; font-size: 10px; color: #9aa4bb;
+    background: #0b0d12; padding: 0 6px; letter-spacing: 1px; }
+
+  #cards { display: grid; grid-template-columns: repeat(3, 236px); gap: 12px; margin-top: 4px; }
+  .card { border: 1px solid #2c3448; border-radius: 10px; background: #12161f; padding: 12px 14px;
+    cursor: pointer; transition: transform .12s, border-color .15s, box-shadow .15s; position: relative; }
+  .card:hover { transform: translateY(-2px); border-color: #4a556e; }
+  .card.sel { border-color: var(--c); box-shadow: 0 0 20px -4px var(--c); background: #151a26; }
+  .card .head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+  .card .glyph { width: 34px; height: 34px; border-radius: 8px; background: var(--c); color: #0b0d12;
+    display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 700; flex: none; }
+  .card .name { font-size: 16px; font-weight: 700; }
+  .card .stats { font-size: 11px; color: #8a93a8; margin-bottom: 6px; letter-spacing: .5px; }
+  .card .desc { font-size: 12px; color: #aab3c6; line-height: 1.5; }
+  .card .badge { position: absolute; top: 8px; right: 10px; font-size: 11px; font-weight: 700;
+    color: var(--c); border: 1px solid var(--c); border-radius: 4px; padding: 1px 6px; display: none; }
+  .card.sel .badge { display: block; }
+
+  #actions { display: flex; gap: 12px; margin-top: 8px; }
+  button { font-family: inherit; cursor: pointer; border-radius: 8px; font-size: 15px; letter-spacing: 2px; }
+  #startBtn { padding: 12px 44px; border: none; font-weight: 800; color: #0b0d12;
+    background: linear-gradient(180deg, #9dc0ff, #4a6cff); transition: filter .15s, transform .1s; }
+  #startBtn:hover:not(:disabled) { filter: brightness(1.15); transform: translateY(-1px); }
+  #startBtn:disabled { background: #2a3142; color: #5b6478; cursor: not-allowed; }
+  #randomBtn { padding: 12px 22px; background: transparent; color: #9aa4bb; border: 1px solid #2c3448; }
+  #randomBtn:hover { border-color: #4a556e; color: #cdd5e4; }
+  #hint { font-size: 12px; color: #69718a; height: 16px; }
+  #help { font-size: 12px; color: #555e74; letter-spacing: 1px; margin-top: 2px; text-align: center; line-height: 1.8; }
+  #help b { color: #8a93a8; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="menu">
+  <h1>乱 刃</h1>
+  <p class="sub">TOP-DOWN 斩击大乱斗 · 选两种斩击，与 5 名 AI 剑客混战</p>
+  <div id="slots">
+    <div class="slot" id="slotL"><span class="key-tag">左槽 · 鼠标左键 / J</span><span class="glyph">?</span><div class="meta"><b>未装备</b><span>点击卡片装备</span></div></div>
+    <div class="slot" id="slotR"><span class="key-tag">右槽 · 鼠标右键 / K</span><span class="glyph">?</span><div class="meta"><b>未装备</b><span>点击卡片装备</span></div></div>
+  </div>
+  <div id="cards"></div>
+  <div id="actions">
+    <button id="randomBtn">随机搭配</button>
+    <button id="startBtn" disabled>进入战场</button>
+  </div>
+  <p id="hint"></p>
+  <p id="help"><b>WASD / 方向键</b> 移动 · <b>鼠标</b> 瞄准 · <b>左键 / 右键</b> 释放对应槽位斩击（可按住连发）<br>
+    击败对手得分，率先取得 <b>10 杀</b> 获胜 · 阵亡后 2.5 秒重生 · <b>M</b> 静音</p>
+</div>
+<script>
+'use strict';
+/* ================================================================
+ * 乱刃 · 斩击大乱斗
+ * top-down 双槽斩击 FFA：玩家 + 5 AI，各带两种斩击混战
+ * ================================================================ */
+
+// ---------- 常量 ----------
+const ARENA_W = 1100, ARENA_H = 700;
+const WIN_KILLS = 10;
+const TAU = Math.PI * 2;
+
+// ---------- 斩击定义 ----------
+const SLASHES = {
+  quick:  { key:'quick',  name:'迅斩', glyph:'迅', color:'#6ee7ff', cd:0.45, windup:0.06, range:84,  arc:115, dmg:8,  knock:130, moveMul:0.7,
+            desc:'出手极快的连打斩击，冷却短，适合贴身消耗压制。' },
+  heavy:  { key:'heavy',  name:'重斩', glyph:'重', color:'#ffb020', cd:1.7,  windup:0.30, range:106, arc:165, dmg:24, knock:480, moveMul:0.15, shake:true,
+            desc:'蓄力后大开大合的一击，高伤害、大扇形、强击退。' },
+  dash:   { key:'dash',   name:'突斩', glyph:'突', color:'#c792ea', cd:1.2,  windup:0.20, range:88,  arc:100, dmg:13, knock:260, moveMul:1, dash:true, dashSpeed:840, dashTime:0.16,
+            desc:'向前疾冲一段距离后挥斩，兼顾位移与进攻。' },
+  spin:   { key:'spin',   name:'旋斩', glyph:'旋', color:'#5dffa0', cd:1.4,  windup:0.14, range:88,  arc:360, dmg:13, knock:330, moveMul:0.4,
+            desc:'360° 周身回旋斩，被围困时的脱身绝技。' },
+  wave:   { key:'wave',   name:'剑气', glyph:'气', color:'#ffe066', cd:1.0,  windup:0.12, range:340, arc:20,  dmg:11, knock:180, moveMul:0.5, projectile:true, projSpeed:560,
+            desc:'斩出飞行的剑气，跨越半个场地远程消耗敌人。' },
+  thrust: { key:'thrust', name:'穿刺', glyph:'刺', color:'#ff6b9d', cd:0.85, windup:0.14, range:152, arc:34,  dmg:15, knock:220, moveMul:0.3,
+            desc:'狭长而致命的直线突刺，距离远、伤害高，考验瞄准。' },
+};
+const SLASH_LIST = Object.values(SLASHES);
+
+// ---------- 障碍物与出生点 ----------
+const OBSTACLES = [
+  { x: 505, y: 305, w: 90, h: 90 },
+  { x: 180, y: 150, w: 150, h: 36 },
+  { x: 770, y: 150, w: 150, h: 36 },
+  { x: 180, y: 514, w: 150, h: 36 },
+  { x: 770, y: 514, w: 150, h: 36 },
+];
+const SPAWN_POINTS = [
+  [90, 90], [ARENA_W - 90, 90], [90, ARENA_H - 90], [ARENA_W - 90, ARENA_H - 90],
+  [ARENA_W / 2, 80], [ARENA_W / 2, ARENA_H - 80],
+];
+const AI_PROFILES = [
+  { name:'赤瞳', color:'#ff5a5a' },
+  { name:'青岚', color:'#4dd2ff' },
+  { name:'紫电', color:'#b78cff' },
+  { name:'金铃', color:'#ffd24d' },
+  { name:'翠羽', color:'#8dff5a' },
+];
+
+// ---------- 音频 ----------
+let AC = null, master = null, muted = false;
+function ensureAudio() {
+  if (!AC) {
+    try {
+      AC = new (window.AudioContext || window.webkitAudioContext)();
+      master = AC.createGain(); master.gain.value = 0.2; master.connect(AC.destination);
+    } catch (err) { AC = null; }
+  }
+  if (AC && AC.state === 'suspended') AC.resume();
+}
+function tone(f0, f1, dur, type, vol) {
+  if (!AC || muted) return;
+  const t = AC.currentTime, o = AC.createOscillator(), g = AC.createGain();
+  o.type = type || 'sine';
+  o.frequency.setValueAtTime(Math.max(1, f0), t);
+  o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t + dur);
+  g.gain.setValueAtTime(vol || 1, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  o.connect(g); g.connect(master); o.start(t); o.stop(t + dur + 0.03);
+}
+function noiseHit(dur, vol, fc) {
+  if (!AC || muted) return;
+  const t = AC.currentTime, len = Math.max(1, (dur * AC.sampleRate) | 0);
+  const buf = AC.createBuffer(1, len, AC.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+  const s = AC.createBufferSource(); s.buffer = buf;
+  const f = AC.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = fc;
+  const g = AC.createGain(); g.gain.value = vol;
+  s.connect(f); f.connect(g); g.connect(master); s.start(t);
+}
+function sfxSwing(def) {
+  if (def.projectile) { tone(650, 1150, 0.12, 'sine', 0.4); return; }
+  if (def.shake) { tone(170, 55, 0.26, 'sawtooth', 0.4); noiseHit(0.2, 0.35, 900); return; }
+  noiseHit(0.1, 0.3, 2600); tone(320, 110, 0.1, 'sawtooth', 0.18);
+}
+function sfxHit(heavy) {
+  if (heavy) { tone(200, 70, 0.14, 'square', 0.5); noiseHit(0.12, 0.5, 1400); }
+  else { tone(240, 150, 0.06, 'square', 0.35); noiseHit(0.05, 0.3, 3200); }
+}
+function sfxDeath() { tone(130, 38, 0.32, 'triangle', 0.7); noiseHit(0.26, 0.45, 480); }
+
+// ---------- 工具 ----------
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const rand = (a, b) => a + Math.random() * (b - a);
+const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+function angDiff(a, b) { let d = (a - b) % TAU; if (d > Math.PI) d -= TAU; if (d < -Math.PI) d += TAU; return d; }
+function turnToward(cur, target, maxDelta) {
+  const d = angDiff(target, cur);
+  return Math.abs(d) <= maxDelta ? target : cur + Math.sign(d) * maxDelta;
+}
+
+// ---------- 画布 ----------
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+let view = { s: 1, ox: 0, oy: 0, dpr: 1 };
+function resize() {
+  view.dpr = window.devicePixelRatio || 1;
+  canvas.width = innerWidth * view.dpr;
+  canvas.height = innerHeight * view.dpr;
+  canvas.style.width = innerWidth + 'px';
+  canvas.style.height = innerHeight + 'px';
+  view.s = Math.min(innerWidth / ARENA_W, innerHeight / ARENA_H);
+  view.ox = (innerWidth - ARENA_W * view.s) / 2;
+  view.oy = (innerHeight - ARENA_H * view.s) / 2;
+}
+window.addEventListener('resize', resize);
+resize();
+function toArena(cx, cy) { return { x: (cx - view.ox) / view.s, y: (cy - view.oy) / view.s }; }
+
+// ---------- 输入 ----------
+const keys = {};
+const mouse = { x: ARENA_W / 2, y: ARENA_H / 2, L: false, R: false };
+window.addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (e.code === 'KeyM') muted = !muted;
+  if (e.code === 'KeyJ') { ensureAudio(); if (phase === 'play' && player) tryCast(player, 0); }
+  if (e.code === 'KeyK') { ensureAudio(); if (phase === 'play' && player) tryCast(player, 1); }
+  if (phase === 'over') {
+    if (e.code === 'KeyR') startGame();
+    if (e.code === 'KeyB') backToMenu();
+  }
+});
+window.addEventListener('keyup', e => { keys[e.code] = false; });
+window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; mouse.L = mouse.R = false; });
+canvas.addEventListener('mousemove', e => { const p = toArena(e.clientX, e.clientY); mouse.x = p.x; mouse.y = p.y; });
+canvas.addEventListener('mousedown', e => {
+  ensureAudio();
+  if (phase !== 'play' || !player) return;
+  if (e.button === 0) { mouse.L = true; tryCast(player, 0); }
+  if (e.button === 2) { mouse.R = true; tryCast(player, 1); }
+});
+window.addEventListener('mouseup', e => {
+  if (e.button === 0) mouse.L = false;
+  if (e.button === 2) mouse.R = false;
+});
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+// ---------- 游戏状态 ----------
+let phase = 'menu';            // 'menu' | 'play' | 'over'
+let entities = [], projectiles = [], swings = [], particles = [], floaters = [], killfeed = [];
+let player = null, winner = null;
+let shakeT = 0, shakeMag = 0, freezeT = 0, gameT = 0;
+let nextId = 1;
+
+// ---------- 实体 ----------
+function makeEntity(name, color, isPlayer, slotKeys, x, y) {
+  return {
+    id: nextId++, name, color, isPlayer,
+    x, y, r: 16, ivx: 0, ivy: 0,
+    facing: rand(0, TAU), speed: isPlayer ? 238 : rand(212, 236),
+    hp: 100, maxHp: 100, alive: true, respawnT: 0, invulnT: 1.2,
+    slots: slotKeys, cds: [0, 0], casting: null,
+    kills: 0, deaths: 0,
+    moveX: 0, moveY: 0,
+    ai: isPlayer ? null : {
+      targetId: -1, decideT: 0, reactT: rand(0.2, 0.6), aimJitter: 0,
+      strafeDir: 1, strafeT: 0, wanderT: 0, wx: 0, wy: 0, mx: 0, my: 0,
+      turnSpeed: rand(5.5, 7.5), aggression: rand(0.8, 1.2),
+    },
+  };
+}
+function randomPair() {
+  const a = SLASH_LIST[(Math.random() * SLASH_LIST.length) | 0].key;
+  let b; do { b = SLASH_LIST[(Math.random() * SLASH_LIST.length) | 0].key; } while (b === a);
+  return [a, b];
+}
+function pickSpawn() {
+  let best = SPAWN_POINTS[0], bd = -1;
+  for (const p of SPAWN_POINTS) {
+    let m = Infinity;
+    for (const e of entities) {
+      if (!e.alive) continue;
+      m = Math.min(m, Math.hypot(e.x - p[0], e.y - p[1]));
+    }
+    if (m > bd) { bd = m; best = p; }
+  }
+  return best;
+}
+
+// ---------- 战斗 ----------
+function tryCast(e, slot) {
+  if (!e.alive || e.casting || e.cds[slot] > 0) return;
+  const def = SLASHES[e.slots[slot]];
+  e.cds[slot] = def.cd;
+  e.casting = { def, slot, t: 0, dur: def.windup };
+  sfxSwing(def);
+}
+function doStrike(e, def) {
+  if (def.projectile) {
+    const a = e.facing;
+    projectiles.push({
+      x: e.x + Math.cos(a) * (e.r + 12), y: e.y + Math.sin(a) * (e.r + 12),
+      vx: Math.cos(a) * def.projSpeed, vy: Math.sin(a) * def.projSpeed,
+      def, src: e, life: def.range / def.projSpeed, r: 7,
+    });
+    return;
+  }
+  swings.push({ x: e.x, y: e.y, facing: e.facing, def, t: 0, life: 0.16 });
+  const arcRad = def.arc * Math.PI / 180;
+  let hitAny = false;
+  for (const t of entities) {
+    if (t === e || !t.alive || t.invulnT > 0) continue;
+    const dx = t.x - e.x, dy = t.y - e.y, d = Math.hypot(dx, dy);
+    if (d > def.range + t.r) continue;
+    if (def.arc < 360 && Math.abs(angDiff(Math.atan2(dy, dx), e.facing)) > arcRad / 2) continue;
+    applyDamage(e, t, def, Math.atan2(dy, dx));
+    hitAny = true;
+  }
+  if (hitAny && def.shake) { shakeT = Math.max(shakeT, 0.18); shakeMag = 7; freezeT = Math.max(freezeT, 0.045); }
+}
+function applyDamage(src, tgt, def, angle) {
+  if (!tgt.alive || tgt.invulnT > 0) return;
+  tgt.hp -= def.dmg;
+  tgt.ivx += Math.cos(angle) * def.knock;
+  tgt.ivy += Math.sin(angle) * def.knock;
+  spawnSparks(tgt.x, tgt.y, def.color, def.shake ? 16 : 8);
+  floaters.push({ x: tgt.x + rand(-8, 8), y: tgt.y - tgt.r - 6, text: '-' + def.dmg, color: def.color, t: 0, life: 0.7 });
+  sfxHit(def.shake);
+  // AI 受击后概率转火攻击者
+  if (tgt.ai && src && src.alive && Math.random() < 0.5) tgt.ai.targetId = src.id;
+  if (tgt.hp <= 0) kill(src, tgt);
+}
+function kill(src, tgt) {
+  tgt.alive = false; tgt.casting = null; tgt.respawnT = 2.5; tgt.deaths++;
+  tgt.hp = 0; tgt.ivx = tgt.ivy = 0;
+  if (src && src !== tgt) src.kills++;
+  spawnSparks(tgt.x, tgt.y, tgt.color, 26);
+  sfxDeath();
+  shakeT = Math.max(shakeT, 0.22); shakeMag = 8; freezeT = Math.max(freezeT, 0.06);
+  if (src && src !== tgt) {
+    killfeed.unshift({ text: src.name + ' 斩杀了 ' + tgt.name, color: src.color, t: 0 });
+    if (killfeed.length > 4) killfeed.pop();
+  }
+  if (phase === 'play' && src && src.kills >= WIN_KILLS) { winner = src; phase = 'over'; }
+}
+function respawn(e) {
+  const p = pickSpawn();
+  e.x = p[0]; e.y = p[1]; e.hp = e.maxHp; e.alive = true;
+  e.invulnT = 1.5; e.cds = [0, 0]; e.casting = null; e.ivx = e.ivy = 0;
+}
+function spawnSparks(x, y, color, n) {
+  for (let i = 0; i < n; i++) {
+    const a = rand(0, TAU), sp = rand(60, 320);
+    particles.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, t: 0, life: rand(0.2, 0.5), color, size: rand(1.5, 3.5) });
+  }
+}
+
+// ---------- AI ----------
+function preferredRange(e) {
+  let sum = 0;
+  for (const k of e.slots) { const d = SLASHES[k]; sum += d.projectile ? 250 : d.range * 0.8; }
+  return Math.max(60, sum / e.slots.length);
+}
+function aiThink(e, dt) {
+  const ai = e.ai;
+  ai.decideT -= dt; ai.reactT -= dt; ai.strafeT -= dt; ai.wanderT -= dt;
+  let tgt = null;
+  for (const en of entities) if (en.id === ai.targetId && en.alive) { tgt = en; break; }
+  if (!tgt || ai.decideT <= 0) {
+    let best = null, bd = Infinity;
+    for (const o of entities) {
+      if (o === e || !o.alive) continue;
+      const d = dist(e, o);
+      if (d < bd) { bd = d; best = o; }
+    }
+    if (best) ai.targetId = best.id;
+    tgt = best;
+    ai.decideT = 0.3 + Math.random() * 0.3;
+  }
+  let mx = 0, my = 0;
+  if (tgt) {
+    const dx = tgt.x - e.x, dy = tgt.y - e.y, d = Math.hypot(dx, dy) || 1;
+    const ux = dx / d, uy = dy / d;
+    e.facing = turnToward(e.facing, Math.atan2(dy, dx), ai.turnSpeed * dt);
+    // 出手：冷却完毕且目标进入射程
+    if (!e.casting && ai.reactT <= 0) {
+      const usable = [];
+      e.slots.forEach((k, i) => {
+        const def = SLASHES[k];
+        if (e.cds[i] > 0) return;
+        const rng = def.projectile ? 330 : def.range + tgt.r;
+        if (def.projectile && d < 60) return;
+        if (d > rng * 0.95) return;
+        if (Math.abs(angDiff(Math.atan2(dy, dx), e.facing)) > 0.45) return;
+        usable.push(i);
+      });
+      if (usable.length) {
+        const slot = usable[(Math.random() * usable.length) | 0];
+        e.facing = Math.atan2(dy, dx) + rand(-0.07, 0.07);
+        tryCast(e, slot);
+        ai.reactT = (0.35 + Math.random() * 0.5) * ai.aggression;
+      }
+    }
+    // 走位：保持偏好距离 + 环绕游走
+    const pref = preferredRange(e);
+    if (d > pref + 18) { mx = ux; my = uy; }
+    else if (d < pref - 26) { mx = -ux; my = -uy; }
+    if (ai.strafeT <= 0) { ai.strafeDir = Math.random() < 0.5 ? -1 : 1; ai.strafeT = rand(0.6, 1.8); }
+    const s = d < pref + 130 ? 0.85 : 0.3;
+    mx += -uy * ai.strafeDir * s; my += ux * ai.strafeDir * s;
+    const m = Math.hypot(mx, my) || 1; mx /= m; my /= m;
+  } else {
+    if (ai.wanderT <= 0) { ai.wx = rand(-1, 1); ai.wy = rand(-1, 1); ai.wanderT = rand(0.8, 1.6); }
+    mx = ai.wx; my = ai.wy;
+  }
+  ai.mx = mx; ai.my = my;
+}
+
+// ---------- 玩家控制 ----------
+function playerControl(e) {
+  let dx = 0, dy = 0;
+  if (keys['KeyW'] || keys['ArrowUp']) dy -= 1;
+  if (keys['KeyS'] || keys['ArrowDown']) dy += 1;
+  if (keys['KeyA'] || keys['ArrowLeft']) dx -= 1;
+  if (keys['KeyD'] || keys['ArrowRight']) dx += 1;
+  const m = Math.hypot(dx, dy);
+  if (m > 0) { dx /= m; dy /= m; }
+  e.moveX = dx; e.moveY = dy;
+  e.facing = Math.atan2(mouse.y - e.y, mouse.x - e.x);
+  if (mouse.L) tryCast(e, 0);
+  if (mouse.R) tryCast(e, 1);
+}
+
+// ---------- 碰撞 ----------
+function collideCircleRect(e, r) {
+  const cx = clamp(e.x, r.x, r.x + r.w), cy = clamp(e.y, r.y, r.y + r.h);
+  let dx = e.x - cx, dy = e.y - cy;
+  let d = Math.hypot(dx, dy);
+  if (d >= e.r) return;
+  if (d === 0) { dx = 0; dy = -1; d = 1; }
+  const push = e.r - d;
+  e.x += dx / d * push; e.y += dy / d * push;
+}
+
+// ---------- 更新 ----------
+function update(dt) {
+  if (freezeT > 0) { freezeT -= dt; return; }
+  gameT += dt;
+  for (const e of entities) {
+    e.cds[0] = Math.max(0, e.cds[0] - dt);
+    e.cds[1] = Math.max(0, e.cds[1] - dt);
+    if (!e.alive) {
+      e.respawnT -= dt;
+      if (e.respawnT <= 0 && phase === 'play') respawn(e);
+      continue;
+    }
+    if (e.invulnT > 0) e.invulnT -= dt;
+    if (e.isPlayer) { if (phase === 'play') playerControl(e); }
+    else aiThink(e, dt);
+
+    // 出招推进
+    let dashing = false;
+    if (e.casting) {
+      e.casting.t += dt;
+      const def = e.casting.def;
+      if (def.dash && e.casting.t <= def.dashTime) dashing = true;
+      if (e.casting.t >= e.casting.dur) {
+        doStrike(e, def);
+        e.casting = null;
+      }
+    }
+    // 移动
+    let dx = e.isPlayer ? e.moveX : e.ai.mx;
+    let dy = e.isPlayer ? e.moveY : e.ai.my;
+    let spd = e.speed;
+    if (e.casting) {
+      const def = e.casting.def;
+      if (dashing) { dx = Math.cos(e.facing); dy = Math.sin(e.facing); spd = def.dashSpeed; }
+      else spd *= def.moveMul;
+    }
+    e.x += (dx * spd + e.ivx) * dt;
+    e.y += (dy * spd + e.ivy) * dt;
+    e.ivx *= Math.exp(-7 * dt); e.ivy *= Math.exp(-7 * dt);
+    e.x = clamp(e.x, e.r, ARENA_W - e.r);
+    e.y = clamp(e.y, e.r, ARENA_H - e.r);
+    for (const o of OBSTACLES) collideCircleRect(e, o);
+  }
+  // 实体间推挤
+  for (let i = 0; i < entities.length; i++) {
+    const a = entities[i]; if (!a.alive) continue;
+    for (let j = i + 1; j < entities.length; j++) {
+      const b = entities[j]; if (!b.alive) continue;
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const d = Math.hypot(dx, dy), min = a.r + b.r;
+      if (d > 0 && d < min) {
+        const push = (min - d) / 2, ux = dx / d, uy = dy / d;
+        a.x -= ux * push; a.y -= uy * push;
+        b.x += ux * push; b.y += uy * push;
+      }
+    }
+  }
+  // 剑气
+  for (const p of projectiles) {
+    p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt;
+    if (p.x < 0 || p.x > ARENA_W || p.y < 0 || p.y > ARENA_H) p.life = 0;
+    for (const o of OBSTACLES) {
+      if (p.x > o.x - p.r && p.x < o.x + o.w + p.r && p.y > o.y - p.r && p.y < o.y + o.h + p.r) {
+        p.life = 0; spawnSparks(p.x, p.y, p.def.color, 6); break;
+      }
+    }
+    if (p.life <= 0) continue;
+    for (const t of entities) {
+      if (t === p.src || !t.alive || t.invulnT > 0) continue;
+      if (Math.hypot(t.x - p.x, t.y - p.y) < p.r + t.r) {
+        applyDamage(p.src, t, p.def, Math.atan2(p.vy, p.vx));
+        p.life = 0;
+        break;
+      }
+    }
+  }
+  projectiles = projectiles.filter(p => p.life > 0);
+  // 特效
+  for (const s of swings) s.t += dt;
+  swings = swings.filter(s => s.t < s.life);
+  for (const p of particles) { p.t += dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= Math.exp(-4 * dt); p.vy *= Math.exp(-4 * dt); }
+  particles = particles.filter(p => p.t < p.life);
+  for (const f of floaters) { f.t += dt; f.y -= 34 * dt; }
+  floaters = floaters.filter(f => f.t < f.life);
+  for (const k of killfeed) k.t += dt;
+  killfeed = killfeed.filter(k => k.t < 5);
+  if (shakeT > 0) shakeT -= dt;
+}
+
+// ---------- 渲染 ----------
+function drawSector(x, y, facing, range, arcDeg, color, alpha) {
+  const arc = arcDeg * Math.PI / 180;
+  ctx.beginPath();
+  if (arcDeg >= 360) ctx.arc(x, y, range, 0, TAU);
+  else {
+    ctx.moveTo(x, y);
+    ctx.arc(x, y, range, facing - arc / 2, facing + arc / 2);
+    ctx.closePath();
+  }
+  ctx.fillStyle = color; ctx.globalAlpha = alpha; ctx.fill();
+  ctx.globalAlpha = 1;
+}
+function render() {
+  ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
+  ctx.fillStyle = '#0b0d12';
+  ctx.fillRect(0, 0, innerWidth, innerHeight);
+  let sx = 0, sy = 0;
+  if (shakeT > 0) { sx = rand(-1, 1) * shakeMag * shakeT * 5; sy = rand(-1, 1) * shakeMag * shakeT * 5; }
+  ctx.save();
+  ctx.translate(view.ox + sx * view.s, view.oy + sy * view.s);
+  ctx.scale(view.s, view.s);
+
+  // 场地
+  ctx.fillStyle = '#14161d';
+  ctx.fillRect(0, 0, ARENA_W, ARENA_H);
+  ctx.strokeStyle = 'rgba(255,255,255,0.045)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let x = 55; x < ARENA_W; x += 55) { ctx.moveTo(x, 0); ctx.lineTo(x, ARENA_H); }
+  for (let y = 55; y < ARENA_H; y += 55) { ctx.moveTo(0, y); ctx.lineTo(ARENA_W, y); }
+  ctx.stroke();
+  ctx.strokeStyle = '#3a4358'; ctx.lineWidth = 3;
+  ctx.strokeRect(1.5, 1.5, ARENA_W - 3, ARENA_H - 3);
+  // 障碍
+  for (const o of OBSTACLES) {
+    ctx.fillStyle = '#232838';
+    ctx.fillRect(o.x, o.y, o.w, o.h);
+    ctx.fillStyle = '#2e3650';
+    ctx.fillRect(o.x, o.y, o.w, 5);
+    ctx.strokeStyle = '#39415c'; ctx.lineWidth = 1.5;
+    ctx.strokeRect(o.x, o.y, o.w, o.h);
+  }
+  // 出招预警（前摇提示）
+  for (const e of entities) {
+    if (!e.alive || !e.casting) continue;
+    const def = e.casting.def;
+    if (def.windup < 0.1 || def.projectile) continue;
+    const prog = e.casting.t / e.casting.dur;
+    drawSector(e.x, e.y, e.facing, def.range, def.arc, def.color, 0.06 + prog * 0.12);
+  }
+  // 斩击弧光
+  for (const s of swings) {
+    const k = 1 - s.t / s.life;
+    drawSector(s.x, s.y, s.facing, s.def.range * (1.02 - k * 0.06), s.def.arc, s.def.color, 0.42 * k);
+    drawSector(s.x, s.y, s.facing, s.def.range * 0.6, s.def.arc, '#ffffff', 0.25 * k);
+  }
+  // 剑气
+  for (const p of projectiles) {
+    const a = Math.atan2(p.vy, p.vx);
+    ctx.save();
+    ctx.translate(p.x, p.y); ctx.rotate(a);
+    ctx.shadowColor = p.def.color; ctx.shadowBlur = 14;
+    ctx.fillStyle = p.def.color;
+    ctx.beginPath(); ctx.ellipse(0, 0, 16, 5, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.ellipse(2, 0, 9, 2.5, 0, 0, TAU); ctx.fill();
+    ctx.restore();
+  }
+  // 角色
+  for (const e of entities) {
+    if (!e.alive) continue;
+    const blink = e.invulnT > 0 && Math.floor(gameT * 10) % 2 === 0;
+    ctx.globalAlpha = blink ? 0.45 : 1;
+    // 影子
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.beginPath(); ctx.ellipse(e.x, e.y + e.r * 0.75, e.r * 0.9, e.r * 0.4, 0, 0, TAU); ctx.fill();
+    // 刀线
+    ctx.strokeStyle = e.casting ? e.casting.def.color : '#d5dae6';
+    ctx.lineWidth = 4;
+    ctx.lineCap = 'round';
+    if (e.casting) { ctx.shadowColor = e.casting.def.color; ctx.shadowBlur = 12; }
+    ctx.beginPath();
+    ctx.moveTo(e.x + Math.cos(e.facing) * e.r * 0.4, e.y + Math.sin(e.facing) * e.r * 0.4);
+    ctx.lineTo(e.x + Math.cos(e.facing) * (e.r + 13), e.y + Math.sin(e.facing) * (e.r + 13));
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    // 身体
+    ctx.fillStyle = e.color;
+    ctx.beginPath(); ctx.arc(e.x, e.y, e.r, 0, TAU); ctx.fill();
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    ctx.beginPath(); ctx.arc(e.x, e.y, e.r * 0.62, 0, TAU); ctx.fill();
+    ctx.strokeStyle = e.isPlayer ? '#ffffff' : 'rgba(255,255,255,0.35)';
+    ctx.lineWidth = e.isPlayer ? 2.5 : 1.5;
+    ctx.beginPath(); ctx.arc(e.x, e.y, e.r, 0, TAU); ctx.stroke();
+    // 无敌环
+    if (e.invulnT > 0) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.6)'; ctx.lineWidth = 1.5;
+      ctx.setLineDash([5, 5]);
+      ctx.beginPath(); ctx.arc(e.x, e.y, e.r + 6, gameT * 3, gameT * 3 + TAU); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    // 名字 + 血条
+    ctx.font = '11px "PingFang SC", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = e.isPlayer ? '#fff' : 'rgba(232,236,244,0.85)';
+    ctx.fillText(e.name, e.x, e.y - e.r - 14);
+    const bw = 38, hpFrac = Math.max(0, e.hp / e.maxHp);
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(e.x - bw / 2, e.y - e.r - 10, bw, 4.5);
+    ctx.fillStyle = hpFrac > 0.5 ? '#6fe38a' : hpFrac > 0.25 ? '#ffc94d' : '#ff5a5a';
+    ctx.fillRect(e.x - bw / 2, e.y - e.r - 10, bw * hpFrac, 4.5);
+    ctx.globalAlpha = 1;
+  }
+  // 粒子
+  for (const p of particles) {
+    ctx.globalAlpha = 1 - p.t / p.life;
+    ctx.fillStyle = p.color;
+    ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+  }
+  ctx.globalAlpha = 1;
+  // 伤害数字
+  ctx.font = 'bold 13px "PingFang SC", sans-serif';
+  ctx.textAlign = 'center';
+  for (const f of floaters) {
+    ctx.globalAlpha = 1 - f.t / f.life;
+    ctx.fillStyle = f.color;
+    ctx.fillText(f.text, f.x, f.y);
+  }
+  ctx.globalAlpha = 1;
+
+  if (phase !== 'menu') drawHUD();
+  ctx.restore();
+}
+function drawHUD() {
+  // 击杀播报
+  ctx.textAlign = 'left';
+  ctx.font = '12px "PingFang SC", sans-serif';
+  killfeed.forEach((k, i) => {
+    ctx.globalAlpha = Math.max(0, 1 - Math.max(0, k.t - 3) / 2);
+    ctx.fillStyle = k.color;
+    ctx.fillText('⚔ ' + k.text, 16, 26 + i * 20);
+  });
+  ctx.globalAlpha = 1;
+  // 目标提示
+  ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(255,255,255,0.35)';
+  ctx.font = '12px "PingFang SC", sans-serif';
+  ctx.fillText('率先取得 ' + WIN_KILLS + ' 杀获胜', ARENA_W / 2, 22);
+  // 记分板
+  const rows = [...entities].sort((a, b) => b.kills - a.kills || a.deaths - b.deaths);
+  ctx.textAlign = 'left';
+  rows.forEach((e, i) => {
+    const y = 22 + i * 24, x = ARENA_W - 168;
+    if (e.isPlayer) {
+      ctx.fillStyle = 'rgba(255,255,255,0.08)';
+      ctx.fillRect(x - 8, y - 12, 164, 21);
+    }
+    ctx.fillStyle = e.color;
+    ctx.beginPath(); ctx.arc(x, y - 3, 5, 0, TAU); ctx.fill();
+    ctx.fillStyle = e.isPlayer ? '#fff' : 'rgba(232,236,244,0.9)';
+    ctx.font = (e.isPlayer ? 'bold ' : '') + '12px "PingFang SC", sans-serif';
+    ctx.fillText(e.name, x + 12, y + 1);
+    e.slots.forEach((k, si) => {
+      ctx.fillStyle = SLASHES[k].color;
+      ctx.fillRect(x + 62 + si * 12, y - 9, 8, 8);
+    });
+    ctx.fillStyle = '#9aa4bb';
+    ctx.textAlign = 'right';
+    ctx.fillText(e.kills + ' / ' + e.deaths, x + 152, y + 1);
+    ctx.textAlign = 'left';
+  });
+  // 玩家血条 + 斩击槽
+  if (player) {
+    const bw = 220, bx = ARENA_W / 2 - bw / 2, by = ARENA_H - 108;
+    const hpFrac = Math.max(0, player.hp / player.maxHp);
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(bx - 2, by - 2, bw + 4, 14);
+    ctx.fillStyle = hpFrac > 0.5 ? '#6fe38a' : hpFrac > 0.25 ? '#ffc94d' : '#ff5a5a';
+    ctx.fillRect(bx, by, bw * hpFrac, 10);
+    ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 1;
+    ctx.strokeRect(bx - 2, by - 2, bw + 4, 14);
+    ctx.textAlign = 'center'; ctx.font = 'bold 10px "PingFang SC", sans-serif';
+    ctx.fillStyle = '#0b0d12';
+    ctx.fillText(Math.ceil(Math.max(0, player.hp)) + ' / ' + player.maxHp, ARENA_W / 2, by + 8.5);
+
+    const labels = ['左键', '右键'];
+    for (let i = 0; i < 2; i++) {
+      const def = SLASHES[player.slots[i]];
+      const size = 62, x = ARENA_W / 2 - size - 8 + i * (size + 16), y = ARENA_H - 88;
+      ctx.fillStyle = 'rgba(10,12,18,0.75)';
+      ctx.fillRect(x, y, size, size);
+      ctx.strokeStyle = def.color; ctx.lineWidth = 2;
+      ctx.strokeRect(x, y, size, size);
+      ctx.fillStyle = def.color;
+      ctx.font = 'bold 22px "PingFang SC", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(def.glyph, x + size / 2, y + 28);
+      ctx.font = '11px "PingFang SC", sans-serif';
+      ctx.fillStyle = 'rgba(232,236,244,0.85)';
+      ctx.fillText(def.name, x + size / 2, y + 45);
+      ctx.fillStyle = 'rgba(154,164,187,0.9)';
+      ctx.font = '10px "PingFang SC", sans-serif';
+      ctx.fillText(labels[i], x + size / 2, y + size + 12);
+      if (player.cds[i] > 0) {
+        const frac = player.cds[i] / def.cd;
+        ctx.fillStyle = 'rgba(5,6,10,0.72)';
+        ctx.fillRect(x, y, size, size * frac);
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 14px "PingFang SC", sans-serif';
+        ctx.fillText(player.cds[i].toFixed(1), x + size / 2, y + size / 2 + 5);
+      }
+    }
+    // 重生倒计时
+    if (!player.alive && phase === 'play') {
+      ctx.textAlign = 'center';
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.font = 'bold 26px "PingFang SC", sans-serif';
+      ctx.fillText('重生中 ' + Math.max(0, player.respawnT).toFixed(1), ARENA_W / 2, ARENA_H / 2 - 30);
+    }
+  }
+  // 结算横幅
+  if (phase === 'over' && winner) {
+    ctx.fillStyle = 'rgba(5,6,10,0.72)';
+    ctx.fillRect(0, 0, ARENA_W, ARENA_H);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = winner.color;
+    ctx.font = 'bold 44px "PingFang SC", sans-serif';
+    ctx.fillText(winner.name + ' 获胜！', ARENA_W / 2, ARENA_H / 2 - 40);
+    ctx.fillStyle = '#e8ecf4';
+    ctx.font = '16px "PingFang SC", sans-serif';
+    ctx.fillText(winner.kills + ' 杀 ' + winner.deaths + ' 死', ARENA_W / 2, ARENA_H / 2);
+    ctx.fillStyle = '#9aa4bb';
+    ctx.font = '14px "PingFang SC", sans-serif';
+    ctx.fillText('按 R 再战一局（AI 重新随机斩击） · 按 B 返回配装', ARENA_W / 2, ARENA_H / 2 + 40);
+  }
+}
+
+// ---------- 主循环 ----------
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min(0.033, (now - last) / 1000);
+  last = now;
+  if (phase === 'play' || phase === 'over') update(dt);
+  render();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+// ---------- 配装菜单 ----------
+const loadout = [null, null];
+const cardsEl = document.getElementById('cards');
+const slotEls = [document.getElementById('slotL'), document.getElementById('slotR')];
+const startBtn = document.getElementById('startBtn');
+const hintEl = document.getElementById('hint');
+
+for (const def of SLASH_LIST) {
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.style.setProperty('--c', def.color);
+  card.dataset.key = def.key;
+  card.innerHTML =
+    '<div class="head"><span class="glyph">' + def.glyph + '</span><span class="name">' + def.name + '</span></div>' +
+    '<div class="stats">伤害 ' + def.dmg + ' · 冷却 ' + def.cd + 's · ' + (def.projectile ? '远程' : '范围 ' + def.range) + '</div>' +
+    '<div class="desc">' + def.desc + '</div>' +
+    '<span class="badge"></span>';
+  card.addEventListener('click', () => toggleCard(def.key));
+  cardsEl.appendChild(card);
+}
+function toggleCard(key) {
+  ensureAudio();
+  const idx = loadout.indexOf(key);
+  if (idx >= 0) { loadout[idx] = null; hintEl.textContent = ''; }
+  else if (!loadout[0]) loadout[0] = key;
+  else if (!loadout[1]) loadout[1] = key;
+  else { loadout[1] = key; hintEl.textContent = '两个槽位已满，已替换右槽（点击已选卡片可卸下）'; }
+  refreshMenu();
+}
+function refreshMenu() {
+  slotEls.forEach((el, i) => {
+    const key = loadout[i];
+    const def = key ? SLASHES[key] : null;
+    el.classList.toggle('filled', !!def);
+    el.style.setProperty('--c', def ? def.color : 'transparent');
+    el.querySelector('.glyph').textContent = def ? def.glyph : '?';
+    el.querySelector('.meta b').textContent = def ? def.name : '未装备';
+    el.querySelector('.meta span').textContent = def ? def.desc.slice(0, 14) + '…' : '点击卡片装备';
+  });
+  document.querySelectorAll('.card').forEach(c => {
+    const idx = loadout.indexOf(c.dataset.key);
+    c.classList.toggle('sel', idx >= 0);
+    c.querySelector('.badge').textContent = idx === 0 ? '左槽' : idx === 1 ? '右槽' : '';
+  });
+  startBtn.disabled = !(loadout[0] && loadout[1]);
+}
+slotEls.forEach((el, i) => el.addEventListener('click', () => { loadout[i] = null; refreshMenu(); }));
+document.getElementById('randomBtn').addEventListener('click', () => {
+  ensureAudio();
+  const p = randomPair();
+  loadout[0] = p[0]; loadout[1] = p[1];
+  hintEl.textContent = '';
+  refreshMenu();
+});
+startBtn.addEventListener('click', () => { ensureAudio(); startGame(); });
+
+function startGame() {
+  entities = []; projectiles = []; swings = []; particles = []; floaters = []; killfeed = [];
+  winner = null; shakeT = 0; freezeT = 0; gameT = 0; nextId = 1;
+  player = makeEntity('你', '#f5f7ff', true, [loadout[0], loadout[1]], ARENA_W / 2, ARENA_H - 140);
+  entities.push(player);
+  const corners = [[90, 90], [ARENA_W - 90, 90], [90, ARENA_H - 90], [ARENA_W - 90, ARENA_H - 90], [ARENA_W / 2, 80]];
+  AI_PROFILES.forEach((prof, i) => {
+    const c = corners[i % corners.length];
+    entities.push(makeEntity(prof.name, prof.color, false, randomPair(), c[0], c[1]));
+  });
+  document.getElementById('menu').style.display = 'none';
+  phase = 'play';
+}
+function backToMenu() {
+  phase = 'menu';
+  entities = []; projectiles = []; swings = []; particles = []; floaters = []; killfeed = [];
+  player = null; winner = null;
+  document.getElementById('menu').style.display = 'flex';
+}
+</script>
+</body>
+</html>
