@@ -44,7 +44,7 @@ const gameCatalog = [
       accent: "#6f8cff",
       accentSecondary: "#9b6dff",
     },
-    entryPath: "/slash/",
+    entryPath: "/games/slash/v1/index.html",
     sortOrder: 10,
   },
 ] as const satisfies readonly Game[];
