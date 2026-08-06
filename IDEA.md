@@ -72,21 +72,21 @@ MVP 主要验证用户能否顺利发现、启动并持续游玩小游戏。核�
 ```mermaid
 flowchart LR
     U["用户浏览器"] --> WEB["www.example.com<br/>Next.js / Vercel"]
-    U --> CDN["games.example.com<br/>AWS CloudFront"]
-    CDN --> S3["AWS S3<br/>游戏包、封面、截图"]
+    U --> CDN["games.example.com<br/>Cloudflare CDN"]
+    CDN --> R2["Cloudflare R2<br/>游戏包、封面、截图"]
 
     WEB --> API["Vercel Functions<br/>业务和统计接口"]
     API --> SUPA["Supabase PostgreSQL"]
 
-    DEV["开发者发布脚本"] --> S3
+    DEV["开发者发布脚本"] --> R2
     DEV --> SUPA
 ```
 
 核心思路：
 
 - 门户页面由 Vercel 托管
-- 游戏文件保存在 S3
-- CloudFront 负责 CDN、HTTPS 和游戏文件缓存
+- 游戏文件保存在 Cloudflare R2
+- Cloudflare 负责 DNS、CDN、HTTPS 和游戏文件缓存
 - Supabase 提供 PostgreSQL 数据库
 - Vercel Functions 承担服务端逻辑
 - 不单独租赁或维护传统服务器
@@ -99,9 +99,9 @@ flowchart LR
 | 网站部署 | Vercel |
 | 服务端接口 | Next.js API / Vercel Functions |
 | 数据库 | Supabase PostgreSQL |
-| 游戏文件存储 | AWS S3 |
-| 游戏文件分发 | AWS CloudFront |
-| 域名解析 | Cloudflare DNS 或域名商 DNS |
+| 游戏文件存储 | Cloudflare R2 |
+| 游戏文件分发 | Cloudflare CDN |
+| 域名解析 | Cloudflare DNS |
 | 游戏上传 | 开发者本地发布脚本 |
 | 错误监控 | Sentry，可选 |
 
@@ -153,7 +153,7 @@ games/
 ></iframe>
 ```
 
-游戏与门户分别运行在 `games.example.com` 和 `www.example.com`。游戏域名不设置 Cookie、不保存密钥，也不直接访问主站数据。主站使用 CSP 将 `frame-src` 限制为 `https://games.example.com`；CloudFront 响应设置 `Content-Security-Policy: frame-ancestors https://www.example.com` 和 `X-Content-Type-Options: nosniff`；iframe 只开放游戏需要的权限。
+游戏与门户分别运行在 `games.example.com` 和 `www.example.com`。游戏域名不设置 Cookie、不保存密钥，也不直接访问主站数据。主站使用 CSP 将 `frame-src` 限制为 `https://games.example.com`；Cloudflare 响应头转换规则设置 `Content-Security-Policy: frame-ancestors https://www.example.com` 和 `X-Content-Type-Options: nosniff`；iframe 只开放游戏需要的权限。
 
 ### 最小版 Game SDK
 
@@ -191,7 +191,7 @@ publish-game ./games/snake --version 2
 
 1. 检查是否存在 `index.html`
 2. 检查文件数量、文件类型和总大小
-3. 上传到新的 S3 版本目录
+3. 上传到新的 R2 版本目录
 4. 校验入口文件和已上传资源均可访问
 5. 在事务中写入版本信息并设置为当前版本
 6. 刷新网站页面缓存
@@ -200,9 +200,10 @@ publish-game ./games/snake --version 2
 
 最低安全要求：
 
-- S3 使用私有 Bucket
-- CloudFront 通过 Origin Access Control 访问 S3
-- AWS 密钥只保存在开发者环境或 CI 中
+- R2 API 不开放匿名访问，并关闭 Bucket 的 `r2.dev` 公共地址
+- 游戏文件只通过 `games.example.com` Custom Domain 公开
+- R2 API Token 仅授予发布所需 Bucket 的对象读写权限
+- R2 凭据只保存在开发者环境或 CI 中
 - 密钥不进入浏览器和代码仓库
 - 游戏使用独立域名
 - iframe 仅开放必要权限
@@ -276,7 +277,7 @@ game_end
 
 ```text
 www.example.com    → Vercel
-games.example.com  → AWS CloudFront → 私有 S3
+games.example.com  → Cloudflare CDN → R2
 ```
 
 API 暂时与主站共用域名：
@@ -309,20 +310,22 @@ www.example.com/api/*
 
 网站服务端密钥只配置在 Vercel 环境变量中；发布凭据只保存在开发者环境或 CI 中。
 
-### AWS S3 与 CloudFront
+### Cloudflare R2 与 CDN
 
-- S3 保存游戏包、封面和截图
-- CloudFront 缓存和分发文件
-- `games.example.com` 绑定 CloudFront
-- HTTPS 证书由 AWS Certificate Manager 提供
+- R2 保存游戏包、封面和截图
+- `games.example.com` 作为 R2 Custom Domain，并通过 Cloudflare CDN 缓存和分发文件
+- Bucket 的 `r2.dev` 公共地址保持关闭，R2 API 仅允许凭据访问
+- Cloudflare DNS 和 Universal SSL 负责域名解析与 HTTPS
+- CORS 仅允许 `https://www.example.com` 发起 `GET` 和 `HEAD` 请求
+- 响应头转换规则设置 `frame-ancestors` 和 `X-Content-Type-Options`
 - 设置正确的 HTML、JavaScript、WASM、图片和音频类型
-- 版本文件设置长期缓存
+- 不可变版本文件设置长期缓存
 
 ## 11. 流量预估
 
 每日 300 次游戏启动时：
 
-按每次加载完整 30 MB 上限计算，每月理论流量约 270 GB；浏览器缓存和按需加载会降低实际流量。该规模下，主要成本来自游戏文件的 CDN 流量。
+按每次加载完整 30 MB 上限计算，每月理论流量约 270 GB；浏览器缓存和按需加载会降低实际流量。R2 不收取公网出口流量费，该规模下主要关注存储和操作请求量，并通过 CDN 缓存减少回源读取。
 
 资源要求：
 
@@ -334,13 +337,13 @@ www.example.com/api/*
 ## 12. 推荐实施顺序
 
 1. 明确首发游戏、测试周期和产品验证指标
-2. 注册域名并创建 Vercel、Supabase、AWS 项目
+2. 注册域名，创建 Vercel、Supabase 项目和 Cloudflare R2 Bucket
 3. 用一个真实游戏打通首页、详情页和 iframe 游玩页
-4. 配置 S3、CloudFront、`games.example.com` 和安全响应头
+4. 配置 R2、`games.example.com`、缓存、CORS 和安全响应头
 5. 建立数据库表，实现最小版 Game SDK 和统计链路
 6. 编写游戏发布脚本并验证版本切换和回滚
 7. 添加隐私政策、基础 SEO 和错误监控
 8. 上传 5～10 个游戏，完成桌面端和移动端链路测试
 9. 正式开放 MVP，并按日查看核心指标
 
-MVP 固定使用 Vercel、Supabase、S3 和 CloudFront，初版不根据用户所在地调整部署方案。
+MVP 固定使用 Vercel、Supabase、Cloudflare R2 和 Cloudflare CDN，初版不根据用户所在地调整部署方案。

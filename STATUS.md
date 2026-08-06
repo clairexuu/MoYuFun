@@ -18,7 +18,7 @@
 
 - 暂无登录、广告、Supabase、统计和 Game SDK。
 - 单个游戏发布包不超过 30 MB；当前游戏以键鼠操作为主。
-- 初版部署固定使用 Vercel、Supabase、S3 和 CloudFront，不按用户所在地分流。
+- 初版部署固定使用 Vercel、Supabase、Cloudflare R2 和 Cloudflare CDN，不按用户所在地分流。
 
 ## 验证状态
 
@@ -29,8 +29,8 @@
 
 ## 下一里程碑：线上可玩
 
-1. 创建并配置 Vercel、S3 和 CloudFront。
-2. 上传 `slash`，配置 CORS 与 `frame-ancestors`。
+1. 创建并配置 Vercel、Cloudflare R2 和 `games.example.com` Custom Domain。
+2. 上传 `slash`，配置 CDN 缓存、CORS 与 `frame-ancestors`。
 3. 设置生产环境 `GAMES_ORIGIN`，部署并验证三页线上链路。
 4. 线上链路稳定后，再迁移 Supabase 游戏目录并接入 SDK/统计。
 
