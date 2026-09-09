@@ -2,6 +2,8 @@
 
 无需下载安装、打开浏览器即可游玩的 HTML5 小游戏站。
 
+生产地址：[www.moyufuns.com](https://www.moyufuns.com)。
+
 当前实现和下一步见 [STATUS.md](STATUS.md)。
 
 ## 本地开发
@@ -27,7 +29,7 @@ pnpm dev:games
 如需修改游戏文件来源，设置环境变量：
 
 ```bash
-GAMES_ORIGIN=https://games.example.com
+GAMES_ORIGIN=https://games.moyufuns.com
 ```
 
 ## 检查

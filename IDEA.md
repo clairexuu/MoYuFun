@@ -1,5 +1,22 @@
 # MoYuFun MVP 初步方案 v0.2
 
+## 整体链路
+
+```text
+用户浏览器
+  ├─ 请求 www.moyufuns.com/play/slash
+  │    └─ Vercel 返回 Next.js 页面
+  │
+  └─ 页面中的 iframe 请求
+       games.moyufuns.com/games/slash/v1/index.html
+          └─ Cloudflare CDN
+               ├─ 缓存命中：直接返回
+               └─ 缓存未命中：从 R2 读取后返回并缓存
+
+用户浏览器收到 index.html
+  └─ 在 iframe 中解析 HTML、CSS 并执行 JavaScript
+```
+
 ## 1. 项目目标
 
 建设一个类似 4399 的轻量级单机小游戏网站。游戏以 HTML/H5 静态文件形式运行，用户打开网站后即可选择并游玩，无需下载安装。
@@ -71,8 +88,8 @@ MVP 主要验证用户能否顺利发现、启动并持续游玩小游戏。核�
 
 ```mermaid
 flowchart LR
-    U["用户浏览器"] --> WEB["www.example.com<br/>Next.js / Vercel"]
-    U --> CDN["games.example.com<br/>Cloudflare CDN"]
+    U["用户浏览器"] --> WEB["www.moyufuns.com<br/>Next.js / Vercel"]
+    U --> CDN["games.moyufuns.com<br/>Cloudflare CDN"]
     CDN --> R2["Cloudflare R2<br/>游戏包、封面、截图"]
 
     WEB --> API["Vercel Functions<br/>业务和统计接口"]
@@ -146,14 +163,14 @@ games/
 
 ```html
 <iframe
-  src="https://games.example.com/games/snake/v2/index.html"
+  src="https://games.moyufuns.com/games/snake/v2/index.html"
   sandbox="allow-scripts allow-same-origin allow-pointer-lock"
   allow="fullscreen; autoplay"
   referrerpolicy="strict-origin-when-cross-origin"
 ></iframe>
 ```
 
-游戏与门户分别运行在 `games.example.com` 和 `www.example.com`。游戏域名不设置 Cookie、不保存密钥，也不直接访问主站数据。主站使用 CSP 将 `frame-src` 限制为 `https://games.example.com`；Cloudflare 响应头转换规则设置 `Content-Security-Policy: frame-ancestors https://www.example.com` 和 `X-Content-Type-Options: nosniff`；iframe 只开放游戏需要的权限。
+游戏与门户分别运行在 `games.moyufuns.com` 和 `www.moyufuns.com`。游戏域名不设置 Cookie、不保存密钥，也不直接访问主站数据。主站使用 CSP 将 `frame-src` 限制为 `https://games.moyufuns.com`；Cloudflare 响应头转换规则设置 `Content-Security-Policy: frame-ancestors https://www.moyufuns.com` 和 `X-Content-Type-Options: nosniff`；iframe 只开放游戏需要的权限。
 
 ### 最小版 Game SDK
 
@@ -177,7 +194,7 @@ games/
 }
 ```
 
-SDK 发送消息时指定 `targetOrigin=https://www.example.com`，不使用 `*`。父页面只接受来自 `https://games.example.com` 且 `event.source` 等于当前 iframe 的消息，并校验协议版本、事件类型和字段大小。`game_id`、`game_version_id`、`anonymous_id` 和 `session_id` 由父页面补充，不信任游戏传入的标识。父页面创建 iframe 时记录 `game_load`，在游戏开始且页面可见时每 30 秒记录一次 `game_heartbeat`，据此估算有效游玩时长。
+SDK 发送消息时指定 `targetOrigin=https://www.moyufuns.com`，不使用 `*`。父页面只接受来自 `https://games.moyufuns.com` 且 `event.source` 等于当前 iframe 的消息，并校验协议版本、事件类型和字段大小。`game_id`、`game_version_id`、`anonymous_id` 和 `session_id` 由父页面补充，不信任游戏传入的标识。父页面创建 iframe 时记录 `game_load`，在游戏开始且页面可见时每 30 秒记录一次 `game_heartbeat`，据此估算有效游玩时长。
 
 ## 8. 游戏上传与发布
 
@@ -201,7 +218,7 @@ publish-game ./games/snake --version 2
 最低安全要求：
 
 - R2 API 不开放匿名访问，并关闭 Bucket 的 `r2.dev` 公共地址
-- 游戏文件只通过 `games.example.com` Custom Domain 公开
+- 游戏文件只通过 `games.moyufuns.com` Custom Domain 公开
 - R2 API Token 仅授予发布所需 Bucket 的对象读写权限
 - R2 凭据只保存在开发者环境或 CI 中
 - 密钥不进入浏览器和代码仓库
@@ -276,17 +293,17 @@ game_end
 ### 域名
 
 ```text
-www.example.com    → Vercel
-games.example.com  → Cloudflare CDN → R2
+www.moyufuns.com    → Vercel
+games.moyufuns.com  → Cloudflare CDN → R2
 ```
 
 API 暂时与主站共用域名：
 
 ```text
-www.example.com/api/*
+www.moyufuns.com/api/*
 ```
 
-不需要单独配置 `api.example.com`。
+不需要单独配置 `api.moyufuns.com`。
 
 ### Vercel
 
@@ -313,10 +330,10 @@ www.example.com/api/*
 ### Cloudflare R2 与 CDN
 
 - R2 保存游戏包、封面和截图
-- `games.example.com` 作为 R2 Custom Domain，并通过 Cloudflare CDN 缓存和分发文件
+- `games.moyufuns.com` 作为 R2 Custom Domain，并通过 Cloudflare CDN 缓存和分发文件
 - Bucket 的 `r2.dev` 公共地址保持关闭，R2 API 仅允许凭据访问
 - Cloudflare DNS 和 Universal SSL 负责域名解析与 HTTPS
-- CORS 仅允许 `https://www.example.com` 发起 `GET` 和 `HEAD` 请求
+- CORS 仅允许 `https://www.moyufuns.com` 发起 `GET` 和 `HEAD` 请求
 - 响应头转换规则设置 `frame-ancestors` 和 `X-Content-Type-Options`
 - 设置正确的 HTML、JavaScript、WASM、图片和音频类型
 - 不可变版本文件设置长期缓存
@@ -339,7 +356,7 @@ www.example.com/api/*
 1. 明确首发游戏、测试周期和产品验证指标
 2. 注册域名，创建 Vercel、Supabase 项目和 Cloudflare R2 Bucket
 3. 用一个真实游戏打通首页、详情页和 iframe 游玩页
-4. 配置 R2、`games.example.com`、缓存、CORS 和安全响应头
+4. 配置 R2、`games.moyufuns.com`、缓存、CORS 和安全响应头
 5. 建立数据库表，实现最小版 Game SDK 和统计链路
 6. 编写游戏发布脚本并验证版本切换和回滚
 7. 添加隐私政策、基础 SEO 和错误监控
