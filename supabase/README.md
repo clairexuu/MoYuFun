@@ -10,6 +10,8 @@
 - `seed_slash_v1`：登记「乱刃」及当前版本 `v1`。
 - `verify_core_database`：部署时断言匿名权限、服务端角色权限和 RLS。
 - `repair_slash_current_version`：向前修复旧种子 statement 未完成的「乱刃」v1 上架与当前版本切换。
+- `add_event_rate_limits`：创建仅存 HMAC 桶键的数据库共享限流表和原子计数函数。
+- `add_event_insert_function`：通过安全定义函数完成事件幂等写入，并撤销主站角色对原始事件表的直接写权限。
 
 远程部署前先预演：
 
@@ -25,7 +27,7 @@ pnpm supabase db lint --linked --level warning
 
 迁移创建两个默认不可登录的角色：
 
-- `moyufun_web`：读取已上架游戏及当前版本，写入事件；不给事件读取权限。
+- `moyufun_web`：读取已上架游戏及当前版本，只执行事件记录和限流函数；不给原始事件表读写权限。
 - `moyufun_publisher`：读取、新建和更新游戏目录，读取和新建不可变版本；不给事件权限和删除权限。
 
 为远程角色设置不同的随机密码后：
@@ -62,11 +64,16 @@ select
   has_table_privilege('moyufun_web', 'public.games', 'select')
     as web_can_read_games,
   has_table_privilege('moyufun_web', 'public.events', 'insert')
-    as web_can_insert_events,
+    as web_can_insert_events_directly,
+  has_function_privilege(
+    'moyufun_web',
+    'public.consume_event_rate_limit(text)',
+    'execute'
+  ) as web_can_rate_limit,
   has_table_privilege('moyufun_publisher', 'public.games', 'update')
     as publisher_can_update_games,
   has_table_privilege('moyufun_publisher', 'public.events', 'select')
     as publisher_can_read_events;
 ```
 
-预期依次为 `false`、`false`、`true`、`true`、`true`、`false`。
+预期依次为 `false`、`false`、`true`、`false`、`true`、`true`、`false`。`record_event` 的执行权限由对应向前迁移在部署时断言。

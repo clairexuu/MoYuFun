@@ -10,7 +10,8 @@
     "dev:games": "serve -l tcp://localhost:4000 --cors --no-port-switching --no-clipboard games",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/*.test.mts"
   },
   "dependencies": {
     "next": "16.3.0",
