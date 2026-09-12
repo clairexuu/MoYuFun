@@ -7,17 +7,18 @@ import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { getGameBySlug, getGames } from "@/lib/games";
 
-export const dynamicParams = false;
+export const dynamic = "force-static";
+export const dynamicParams = true;
 
-export function generateStaticParams() {
-  return getGames().map((game) => ({ slug: game.slug }));
+export async function generateStaticParams() {
+  return (await getGames()).map((game) => ({ slug: game.slug }));
 }
 
 export async function generateMetadata(
   props: PageProps<"/games/[slug]">,
 ): Promise<Metadata> {
   const { slug } = await props.params;
-  const game = getGameBySlug(slug);
+  const game = await getGameBySlug(slug);
 
   if (!game) {
     return { title: "游戏不存在" };
@@ -33,7 +34,7 @@ export default async function GameDetailPage(
   props: PageProps<"/games/[slug]">,
 ) {
   const { slug } = await props.params;
-  const game = getGameBySlug(slug);
+  const game = await getGameBySlug(slug);
 
   if (!game) {
     notFound();

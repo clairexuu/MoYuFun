@@ -3,8 +3,8 @@ import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { getGames } from "@/lib/games";
 
-export default function Home() {
-  const games = getGames();
+export default async function Home() {
+  const games = await getGames();
 
   return (
     <div className="flex min-h-dvh flex-col">

@@ -4,17 +4,18 @@ import { notFound } from "next/navigation";
 import { GamePlayer } from "@/components/game-player";
 import { getGameBySlug, getGames, getGameUrl } from "@/lib/games";
 
-export const dynamicParams = false;
+export const dynamic = "force-static";
+export const dynamicParams = true;
 
-export function generateStaticParams() {
-  return getGames().map((game) => ({ slug: game.slug }));
+export async function generateStaticParams() {
+  return (await getGames()).map((game) => ({ slug: game.slug }));
 }
 
 export async function generateMetadata(
   props: PageProps<"/play/[slug]">,
 ): Promise<Metadata> {
   const { slug } = await props.params;
-  const game = getGameBySlug(slug);
+  const game = await getGameBySlug(slug);
 
   return {
     title: game ? `正在游玩 ${game.name}` : "游戏不存在",
@@ -27,7 +28,7 @@ export async function generateMetadata(
 
 export default async function PlayGamePage(props: PageProps<"/play/[slug]">) {
   const { slug } = await props.params;
-  const game = getGameBySlug(slug);
+  const game = await getGameBySlug(slug);
 
   if (!game) {
     notFound();

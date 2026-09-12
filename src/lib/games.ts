@@ -1,3 +1,11 @@
+import "server-only";
+
+import { unstable_cache } from "next/cache";
+
+import { getDatabase } from "@/lib/database";
+
+export const GAME_CATALOG_CACHE_TAG = "game-catalog";
+
 export type GameCover = {
   symbol: string;
   eyebrow: string;
@@ -22,39 +30,117 @@ export type Game = {
   sortOrder: number;
 };
 
-const gameCatalog = [
-  {
-    slug: "slash",
-    name: "乱刃 · 斩击大乱斗",
-    shortDescription: "选两种斩击，与五名 AI 剑客展开快节奏混战。",
-    description:
-      "在六种斩击中自由搭配两种招式，利用走位、突进和击退效果击败对手。率先取得十次击杀即可赢下这场乱斗。",
-    tags: ["动作", "单人", "键鼠"],
-    controls: [
-      { input: "WASD / 方向键", action: "移动" },
-      { input: "鼠标", action: "瞄准" },
-      { input: "鼠标左键 / J", action: "使用左槽斩击" },
-      { input: "鼠标右键 / K", action: "使用右槽斩击" },
-      { input: "M", action: "静音或恢复声音" },
-      { input: "R / B", action: "再战 / 返回配装" },
-    ],
-    cover: {
-      symbol: "斩",
-      eyebrow: "TOP-DOWN ARENA",
-      accent: "#6f8cff",
-      accentSecondary: "#9b6dff",
-    },
-    entryPath: "/games/slash/v1/index.html",
-    sortOrder: 10,
-  },
-] as const satisfies readonly Game[];
+type GameRow = {
+  slug: unknown;
+  name: unknown;
+  short_description: unknown;
+  description: unknown;
+  tags: unknown;
+  controls: unknown;
+  cover: unknown;
+  entry_path: unknown;
+  sort_order: unknown;
+};
 
-export function getGames(): Game[] {
-  return [...gameCatalog].sort((a, b) => a.sortOrder - b.sortOrder);
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export function getGameBySlug(slug: string): Game | undefined {
-  return gameCatalog.find((game) => game.slug === slug);
+function readString(value: unknown, field: string): string {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error(`Invalid game catalog field: ${field}`);
+  }
+
+  return value;
+}
+
+function mapGame(row: GameRow): Game {
+  if (
+    !Array.isArray(row.tags) ||
+    !row.tags.every((tag) => typeof tag === "string")
+  ) {
+    throw new Error("Invalid game catalog field: tags");
+  }
+
+  if (!Array.isArray(row.controls)) {
+    throw new Error("Invalid game catalog field: controls");
+  }
+
+  const controls = row.controls.map((control) => {
+    if (!isRecord(control)) {
+      throw new Error("Invalid game catalog field: controls");
+    }
+
+    return {
+      input: readString(control.input, "controls.input"),
+      action: readString(control.action, "controls.action"),
+    };
+  });
+
+  if (!isRecord(row.cover)) {
+    throw new Error("Invalid game catalog field: cover");
+  }
+
+  if (!Number.isInteger(row.sort_order)) {
+    throw new Error("Invalid game catalog field: sort_order");
+  }
+
+  return {
+    slug: readString(row.slug, "slug"),
+    name: readString(row.name, "name"),
+    shortDescription: readString(row.short_description, "short_description"),
+    description: readString(row.description, "description"),
+    tags: row.tags,
+    controls,
+    cover: {
+      symbol: readString(row.cover.symbol, "cover.symbol"),
+      eyebrow: readString(row.cover.eyebrow, "cover.eyebrow"),
+      accent: readString(row.cover.accent, "cover.accent"),
+      accentSecondary: readString(
+        row.cover.accentSecondary,
+        "cover.accentSecondary",
+      ),
+    },
+    entryPath: readString(row.entry_path, "entry_path"),
+    sortOrder: row.sort_order as number,
+  };
+}
+
+async function readGames(): Promise<Game[]> {
+  const sql = getDatabase();
+  const rows = await sql<GameRow[]>`
+    select
+      g.slug,
+      g.name,
+      g.short_description,
+      g.description,
+      g.tags,
+      g.controls,
+      g.cover,
+      g.sort_order,
+      v.entry_path
+    from public.games g
+    join public.game_versions v
+      on v.game_id = g.id
+      and v.id = g.current_version_id
+    where g.is_listed = true
+    order by g.sort_order asc, g.slug asc
+  `;
+
+  return rows.map(mapGame);
+}
+
+const getCachedGames = unstable_cache(readGames, [GAME_CATALOG_CACHE_TAG], {
+  revalidate: 300,
+  tags: [GAME_CATALOG_CACHE_TAG],
+});
+
+export async function getGames(): Promise<Game[]> {
+  return getCachedGames();
+}
+
+export async function getGameBySlug(slug: string): Promise<Game | undefined> {
+  return (await getGames()).find((game) => game.slug === slug);
 }
 
 export function getGameUrl(game: Game): string {
