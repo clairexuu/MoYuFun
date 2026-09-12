@@ -2,17 +2,11 @@
 
 无需下载安装、打开浏览器即可游玩的 HTML5 小游戏站。
 
-当前实现、部署架构和开发约定见 [DEVELOPMENT.md](DEVELOPMENT.md)，待办事项与执行顺序见 [TODO.md](TODO.md)。
+当前实现、部署架构和开发约定见 [DEV.md](DEV.md)，待办事项与执行顺序见 [TODO.md](TODO.md)。
 
-## 当前部署
+## 部署地址
 
-| 服务 | 用途 | 地址 |
-| --- | --- | --- |
-| Vercel | 托管 Next.js 主站 | [www.moyufuns.com](https://www.moyufuns.com) · [管理控制台](https://vercel.com/dashboard) |
-| Cloudflare R2 | 存储游戏静态文件，通过自定义域名访问 | [games.moyufuns.com](https://games.moyufuns.com) · [管理控制台](https://dash.cloudflare.com/) |
-| Cloudflare CDN | 缓存并分发 R2 中的游戏文件 | [games.moyufuns.com](https://games.moyufuns.com) |
-
-R2 和 CDN 共用游戏域名；具体游戏需访问完整文件路径，例如 [乱刃 v1](https://games.moyufuns.com/games/slash/v1/index.html)。主站生产环境设置 `GAMES_ORIGIN=https://games.moyufuns.com`。
+[www.moyufuns.com](https://www.moyufuns.com)
 
 ## 本地开发
 
@@ -39,6 +33,8 @@ pnpm dev:games
 ```bash
 GAMES_ORIGIN=https://games.moyufuns.com
 ```
+
+Supabase 数据库迁移、权限和服务端环境变量见 [supabase/README.md](supabase/README.md)。
 
 ## 检查
 
