@@ -1,0 +1,9 @@
+{
+  "cleanUrls": false,
+  "rewrites": [
+    {
+      "source": "/games/:slug/:version/index.html",
+      "destination": "/:slug/:version/index.html"
+    }
+  ]
+}

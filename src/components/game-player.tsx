@@ -1,24 +1,46 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+
+import { trackBrowserEvent } from "@/lib/browser-events";
+import {
+  createGameLifecycle,
+  readGameMessage,
+} from "@/lib/game-events";
 
 type GamePlayerProps = {
   detailHref: string;
+  gameId: string;
+  gameVersionId: string;
+  path: string;
   src: string;
   title: string;
 };
 
-export function GamePlayer({ detailHref, src, title }: GamePlayerProps) {
+export function GamePlayer({
+  detailHref,
+  gameId,
+  gameVersionId,
+  path,
+  src,
+  title,
+}: GamePlayerProps) {
   const playerRef = useRef<HTMLElement>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const lifecycleRef = useRef<{
+    attempt: number;
+    lifecycle: ReturnType<typeof createGameLifecycle>;
+  }>(null);
   const [attempt, setAttempt] = useState(0);
-  const [frameLoaded, setFrameLoaded] = useState(false);
-  const [gameReachable, setGameReachable] = useState(false);
+  const [ready, setReady] = useState(false);
   const [loadingSlowly, setLoadingSlowly] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [fullscreenError, setFullscreenError] = useState<string>();
 
   useEffect(() => {
+    if (ready) return;
+
     const controller = new AbortController();
     const slowTimer = window.setTimeout(() => {
       setLoadingSlowly(true);
@@ -29,8 +51,8 @@ export function GamePlayer({ detailHref, src, title }: GamePlayerProps) {
       mode: "cors",
       signal: controller.signal,
     })
-      .then(() => {
-        setGameReachable(true);
+      .then((response) => {
+        if (!response.ok) throw new Error("Game request failed");
       })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === "AbortError") {
@@ -43,7 +65,49 @@ export function GamePlayer({ detailHref, src, title }: GamePlayerProps) {
       controller.abort();
       window.clearTimeout(slowTimer);
     };
-  }, [attempt, src]);
+  }, [attempt, ready, src]);
+
+  useLayoutEffect(() => {
+    let state = lifecycleRef.current;
+    if (!state || state.attempt !== attempt) {
+      state = {
+        attempt,
+        lifecycle: createGameLifecycle({
+          context: {
+            game_id: gameId,
+            game_version_id: gameVersionId,
+            path,
+          },
+          track: trackBrowserEvent,
+          now: Date.now,
+          randomUUID: () => window.crypto.randomUUID(),
+          isVisible: () => document.visibilityState === "visible",
+          setInterval: (callback, milliseconds) =>
+            window.setInterval(callback, milliseconds),
+          clearInterval: (timer) => window.clearInterval(timer as number),
+        }),
+      };
+      lifecycleRef.current = state;
+      state.lifecycle.load();
+    }
+
+    const lifecycle = state.lifecycle;
+    const gameOrigin = new URL(src).origin;
+    function receiveGameMessage(event: MessageEvent) {
+      const frameWindow = iframeRef.current?.contentWindow;
+      if (!frameWindow) return;
+      const type = readGameMessage(event, gameOrigin, frameWindow);
+      if (!type) return;
+      lifecycle.message(type);
+      if (type === "ready") setReady(true);
+    }
+
+    window.addEventListener("message", receiveGameMessage);
+    return () => {
+      window.removeEventListener("message", receiveGameMessage);
+      lifecycle.dispose();
+    };
+  }, [attempt, gameId, gameVersionId, path, src]);
 
   useEffect(() => {
     function syncFullscreenState() {
@@ -56,11 +120,8 @@ export function GamePlayer({ detailHref, src, title }: GamePlayerProps) {
     };
   }, []);
 
-  const ready = frameLoaded && gameReachable;
-
   function reloadGame() {
-    setFrameLoaded(false);
-    setGameReachable(false);
+    setReady(false);
     setLoadingSlowly(false);
     setAttempt((currentAttempt) => currentAttempt + 1);
   }
@@ -117,7 +178,7 @@ export function GamePlayer({ detailHref, src, title }: GamePlayerProps) {
           allow="fullscreen; autoplay"
           className="size-full border-0 bg-[#05070b]"
           key={attempt}
-          onLoad={() => setFrameLoaded(true)}
+          ref={iframeRef}
           referrerPolicy="strict-origin-when-cross-origin"
           sandbox="allow-scripts allow-same-origin allow-pointer-lock"
           src={src}

@@ -1,4 +1,5 @@
 import { GameCard } from "@/components/game-card";
+import { PageEvent } from "@/components/page-event";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { getGames } from "@/lib/games";
@@ -8,6 +9,7 @@ export default async function Home() {
 
   return (
     <div className="flex min-h-dvh flex-col">
+      <PageEvent event={{ event_type: "page_view", path: "/" }} key="/" />
       <SiteHeader />
       <main className="mx-auto w-full max-w-6xl flex-1 px-5 py-12 sm:px-8 sm:py-16 lg:py-20">
         <section className="max-w-2xl">

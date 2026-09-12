@@ -19,6 +19,8 @@ export type GameControl = {
 };
 
 export type Game = {
+  id: string;
+  versionId: string;
   slug: string;
   name: string;
   shortDescription: string;
@@ -31,6 +33,8 @@ export type Game = {
 };
 
 type GameRow = {
+  id: unknown;
+  version_id: unknown;
   slug: unknown;
   name: unknown;
   short_description: unknown;
@@ -86,6 +90,8 @@ function mapGame(row: GameRow): Game {
   }
 
   return {
+    id: readString(row.id, "id"),
+    versionId: readString(row.version_id, "version_id"),
     slug: readString(row.slug, "slug"),
     name: readString(row.name, "name"),
     shortDescription: readString(row.short_description, "short_description"),
@@ -110,6 +116,8 @@ async function readGames(): Promise<Game[]> {
   const sql = getDatabase();
   const rows = await sql<GameRow[]>`
     select
+      g.id,
+      v.id as version_id,
       g.slug,
       g.name,
       g.short_description,

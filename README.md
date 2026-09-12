@@ -42,5 +42,5 @@ Supabase 数据库迁移、权限和服务端环境变量见 [supabase/README.md
 pnpm test
 pnpm lint
 pnpm build --webpack
-node games/games/slash/v1/test_headless.js
+node games/slash/v2/test_headless.js
 ```

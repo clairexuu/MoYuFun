@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { GameCover } from "@/components/game-cover";
+import { PageEvent } from "@/components/page-event";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { getGameBySlug, getGames } from "@/lib/games";
@@ -42,6 +43,15 @@ export default async function GameDetailPage(
 
   return (
     <div className="flex min-h-dvh flex-col">
+      <PageEvent
+        event={{
+          event_type: "game_detail_view",
+          game_id: game.id,
+          game_version_id: game.versionId,
+          path: `/games/${game.slug}`,
+        }}
+        key={`/games/${game.slug}`}
+      />
       <SiteHeader />
       <main className="mx-auto w-full max-w-6xl flex-1 px-5 py-8 sm:px-8 sm:py-12">
         <Link
