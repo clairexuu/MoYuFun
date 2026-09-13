@@ -15,10 +15,12 @@
 | `src/lib/database.ts` | 服务端 PostgreSQL 连接，校验主站角色并适配 Transaction Pooler |
 | `src/lib/games.ts` | `Game` 类型、数据库行映射、JSON 校验和缓存读取接口，是游戏目录的唯一数据入口 |
 | `src/lib/event-request.ts`、`events.ts` | 统计请求大小与逐事件校验，以及 server-only 限流和幂等写入 |
+| `src/lib/daily-metrics.ts` | `/stats` 唯一日汇总读取接口，校验筛选条件并映射最小只读结果 |
 | `src/lib/browser-events.ts` | 浏览器匿名访客、30 分钟会话和 `/api/events` 上报 |
 | `src/lib/game-events.ts` | iframe 消息校验及加载、游玩、心跳生命周期 |
 | `src/app/api/events/route.ts` | 单事件统计入口，将合法事件交给服务端写入模块 |
 | `src/app/api/revalidate/games/route.ts` | 受 Bearer secret 保护的游戏目录缓存失效入口 |
+| `src/app/stats/page.tsx`、`src/proxy.ts` | 服务端渲染内部指标看板，以及仅覆盖 `/stats/:path*` 的 HTTP Basic Auth |
 | `src/components/game-player.tsx` | 客户端播放器：可信 iframe 适配、加载与游玩事件、重试、全屏和移动端提示 |
 | `src/components/page-event.tsx` | 首页与详情页的一次性访问事件 |
 | `src/components/game-card.tsx`、`game-cover.tsx` | 卡片与封面；封面由符号和配色绘制 |
@@ -48,7 +50,9 @@
 
 接口以 Vercel 提供的客户端 IP 计算服务端 HMAC，每个桶每分钟最多 120 个合法请求；Postgres 函数原子计数，因此限制跨 Vercel 实例共享，数据库不保存原始 IP。`metadata.environment` 只由服务端按生产、预览或开发环境写入。数据库错误返回通用 500，响应和日志不包含连接信息。
 
-`event_rate_limits` 每行是一个匿名 IP 哈希的一分钟固定窗口桶：`window_started_at` 是当前窗口开始时间，`request_count` 是该窗口已获准进入写事件流程的请求数。协议校验通过后先消耗限流，再调用 `record_event()`；后续事件写入失败仍计数。待部署的 Supabase Cron 任务每日 19:30 UTC 先删除超过 30×24 小时且对应上海日已标记汇总成功的 `events`，再清理窗口开始已超过 1 天的限流桶。日汇总下一步实现，并须在同一汇总事务最后写入 `event_daily_rollup_status`；当前状态表为空时不会删除原始事件。任务和运行历史从 Dashboard 的 Cron 页面或 `cron.job`、`cron.job_run_details` 查看。
+`event_rate_limits` 每行是一个匿名 IP 哈希的一分钟固定窗口桶：`window_started_at` 是当前窗口开始时间，`request_count` 是该窗口已获准进入写事件流程的请求数。协议校验通过后先消耗限流，再调用 `record_event()`；后续事件写入失败仍计数。Supabase Cron 任务每日 19:30 UTC 汇总上海日 D-2，并补齐已有原始事件中漏跑且已最终化的日期，再按顺序登记完成状态、删除超过 30×24 小时且对应日已完成的 `events`，最后清理窗口开始已超过 1 天的限流桶。汇总与完成状态在同一事务，任一日期失败会让整次维护回滚，失败或未最终化的日期不会取得删除资格。任务和运行历史从 Dashboard 的 Cron 页面或 `cron.job`、`cron.job_run_details` 查看。
+
+`daily_game_metrics` 以日期、游戏和版本为主键，长期保存五项指标的分子、分母、样本和 P75。只统计 production 事件，并按 `received_at` 的 `Asia/Shanghai` 日期归档；有效游玩将 D 日开始的 play 在 D 与 D+1 收到的心跳累计。应用角色不能直接读写汇总表，`moyufun_web` 只能执行严格只读函数；主站再通过 `getDailyGameMetrics()` 这一接口读取。`/stats` 不提供原始事件浏览或独立 API，多版本选择时不伪造合并 P75。
 
 ## 3. 部署链路与配置
 
@@ -65,7 +69,7 @@
 | Cloudflare R2 + CDN | 游戏存储与分发：[乱刃 v2](https://games.moyufuns.com/games/slash/v2/index.html) · [控制台](https://dash.cloudflare.com/) |
 | Supabase | 托管 PostgreSQL，保存游戏、版本和统计事件；迁移与权限说明见 `supabase/README.md` |
 
-主站生产环境设置 `GAMES_ORIGIN=https://games.moyufuns.com`、Transaction Pooler 的 `MOYUFUN_WEB_DATABASE_URL`，以及与发布环境约定一致的 `MOYUFUN_REVALIDATE_SECRET`。这些变量均为服务端配置；数据库连接和刷新 secret 不得使用 `NEXT_PUBLIC_` 前缀。`GAMES_ORIGIN` 同时决定游戏 URL 和 CSP，变更后重新构建部署。游戏文件独立上传到 R2，部署主站不会自动发布游戏。
+主站生产环境设置 `GAMES_ORIGIN=https://games.moyufuns.com`、Transaction Pooler 的 `MOYUFUN_WEB_DATABASE_URL`、与发布环境约定一致的 `MOYUFUN_REVALIDATE_SECRET`，以及至少 32 个随机字符的 `MOYUFUN_STATS_PASSWORD`。这些变量均为服务端配置，不得使用 `NEXT_PUBLIC_` 前缀。`/stats` 用户名固定为 `moyufun`；缺少或过短密码时返回 503，错误凭据返回带 challenge 的 401，正确凭据才放行。密码不进入 URL、日志或仓库。`GAMES_ORIGIN` 同时决定游戏 URL 和 CSP，变更后重新构建部署。游戏文件独立上传到 R2，部署主站不会自动发布游戏。
 
 主站 `/play/*` 的 CSP 为 `frame-src 'self' <游戏来源>`。iframe 使用 `sandbox="allow-scripts allow-same-origin allow-pointer-lock"`、`allow="fullscreen; autoplay"` 和 `strict-origin-when-cross-origin` referrer policy。
 
@@ -88,6 +92,6 @@
 
 Supabase 表、RLS、最小权限角色和「乱刃」v2 已部署。主站目录使用 5 分钟兜底刷新和受保护的按需失效；角色权限见 `supabase/README.md`。
 
-测试周期和指标口径见 [METRICS.md](METRICS.md)。`/api/events`、浏览器身份与会话、页面事件和游戏 SDK 已完成；受汇总状态保护的原始事件删除与限流桶清理迁移已准备、尚未部署。下一步实现指标查询和长期日汇总，并在汇总事务最后登记成功日期。
+测试周期和指标口径见 [METRICS.md](METRICS.md)。`/api/events`、浏览器身份与会话、页面事件和游戏 SDK 已完成；受汇总状态保护的原始事件删除、限流桶清理、五项指标查询、长期日汇总和 D-2 最终化均已部署到 Supabase，并通过远程 lint、迁移版本、回滚事务及首次维护验收。内部 `/stats` 代码已完成，Vercel 部署和 `MOYUFUN_STATS_PASSWORD` 配置仍待执行。7 日回访推迟到后续增强，不在看板保留占位。
 
 后续完成发布自动化、隐私政策与条款、SEO 和多游戏验收，按 TODO 推进。MVP 固定采用 Vercel、Supabase、R2 与 CDN，由内部发布游戏；搜索、社区互动、云存档和第三方上传不在本轮范围。完成任务后更新本文现状并勾选 TODO。

@@ -128,7 +128,8 @@ values
   (repeat('b', 64), statement_timestamp() - interval '1 day', 120),
   (repeat('c', 64), statement_timestamp() - interval '1 minute', 2);
 
-select public.run_event_retention_maintenance();
+select public.cleanup_summarized_events();
+select public.cleanup_expired_event_rate_limits();
 
 do $$
 begin
