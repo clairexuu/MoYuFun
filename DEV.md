@@ -1,6 +1,6 @@
 # MoYuFun 开发说明
 
-面向接手开发者的代码与部署索引。当前已上线「乱刃」，游戏目录已迁移到 Supabase，首页 → 详情 → 游玩链路通过生产验收。后续顺序见 [TODO.md](TODO.md)，启动命令见 [README.md](README.md)。
+面向接手开发者的代码与部署索引。当前已上线「乱刃」v2，游戏目录和七类事件采集均通过生产验收。后续顺序见 [TODO.md](TODO.md)，启动命令见 [README.md](README.md)。
 
 ## 1. 代码结构与功能入口
 
@@ -10,17 +10,20 @@
 | --- | --- |
 | `src/app/page.tsx` | `/` 首页，读取游戏目录并渲染卡片 |
 | `src/app/games/[slug]/page.tsx` | 详情页：封面、简介、标签、操作说明、开始按钮及页面元信息 |
-| `src/app/play/[slug]/page.tsx` | 游玩页：查找游戏、生成文件 URL、向播放器传入 `src/title/detailHref`；设置 `noindex/nofollow` |
+| `src/app/play/[slug]/page.tsx` | 游玩页：查找游戏、生成文件 URL，并向播放器传入可信游戏及版本标识；设置 `noindex/nofollow` |
 | `src/app/layout.tsx`、`globals.css`、`not-found.tsx` | 全站标题模板、字体与样式，以及定制 404 |
 | `src/lib/database.ts` | 服务端 PostgreSQL 连接，校验主站角色并适配 Transaction Pooler |
 | `src/lib/games.ts` | `Game` 类型、数据库行映射、JSON 校验和缓存读取接口，是游戏目录的唯一数据入口 |
 | `src/lib/event-request.ts`、`events.ts` | 统计请求大小与逐事件校验，以及 server-only 限流和幂等写入 |
+| `src/lib/browser-events.ts` | 浏览器匿名访客、30 分钟会话和 `/api/events` 上报 |
+| `src/lib/game-events.ts` | iframe 消息校验及加载、游玩、心跳生命周期 |
 | `src/app/api/events/route.ts` | 单事件统计入口，将合法事件交给服务端写入模块 |
 | `src/app/api/revalidate/games/route.ts` | 受 Bearer secret 保护的游戏目录缓存失效入口 |
-| `src/components/game-player.tsx` | 客户端播放器：iframe、加载状态、重试、返回、全屏、移动端提示 |
+| `src/components/game-player.tsx` | 客户端播放器：可信 iframe 适配、加载与游玩事件、重试、全屏和移动端提示 |
+| `src/components/page-event.tsx` | 首页与详情页的一次性访问事件 |
 | `src/components/game-card.tsx`、`game-cover.tsx` | 卡片与封面；封面由符号和配色绘制 |
 | `src/components/site-header.tsx`、`site-footer.tsx` | 共用页头、页脚 |
-| `games/games/slash/v1/` | `index.html` 为完整游戏；同目录含玩法 README 和 `test_headless.js` |
+| `games/slash/v1/`、`games/slash/v2/` | 保留的原始版本与接入事件 SDK 的当前版本；各含游戏、玩法 README 和无头测试 |
 | `supabase/migrations/` | Supabase 数据库结构和「乱刃」初始数据迁移 |
 | `supabase/README.md` | 数据库部署、服务端角色和权限验收说明 |
 | `next.config.ts` | 游玩页 CSP 响应头，允许指定游戏来源 |
@@ -35,19 +38,23 @@
 
 详情页与游玩页预生成已有路径，并允许新 slug 首次访问时生成；未知、未上架或没有当前版本的 slug 返回 404。
 
-播放器同时等待 iframe 的 `onLoad` 与跨域 `fetch(src)` 完成，再移除加载遮罩；请求失败或等待 10 秒显示提示。重试清空状态并重建 iframe，全屏通过 Fullscreen API 控制播放器容器。移动端提示使用键鼠，仍允许进入。
+播放器创建或重试 iframe 时生成新的加载标识并记录 `game_load`。只有来源、发送窗口和协议形状均匹配的 `ready` 消息才能解除遮罩；主站使用自身时钟记录 `game_ready` 耗时。跨域探测会校验 HTTP 状态，请求失败或等待 10 秒显示提示。全屏通过 Fullscreen API 控制播放器容器，移动端仍提示键鼠操作。
 
-当前加载判定未检查 HTTP 状态码，也未接收游戏自身的就绪消息；它表示文件加载信号，不代表游戏逻辑已准备完成。SDK 与真实就绪统计属于下一阶段。
+游戏 SDK 仅发送版本化的 `ready`、`start`、`end` 消息，并使用明确的主站目标来源；游戏和版本 UUID、页面路径、加载耗时及游玩标识都由主站补充。每次有效开局生成新的游玩标识，仅在页面可见且游玩尚未结束时每 30 秒记录一次心跳，结算后停止。
+
+首页仅记录 `page_view`，详情页仅记录 `game_detail_view`。匿名访客标识保存在 `localStorage`；会话保存标识及最后活动时间，连续 30 分钟无活动后轮换。存储不可用时退化为当前页面内存状态，不阻塞游玩。
 
 `POST /api/events` 只接受 4 KiB 以内的单个 JSON 事件。协议和逐事件字段矩阵见 [METRICS.md](METRICS.md)；未知或错配字段、客户端 `metadata`、非 JSON、非法 UUID／时间／路径和不存在的游戏版本组合均被拒绝。事件按 `event_id` 幂等写入，成功和重复均返回 204，不向客户端暴露是否重复。
 
 接口以 Vercel 提供的客户端 IP 计算服务端 HMAC，每个桶每分钟最多 120 个合法请求；Postgres 函数原子计数，因此限制跨 Vercel 实例共享，数据库不保存原始 IP。`metadata.environment` 只由服务端按生产、预览或开发环境写入。数据库错误返回通用 500，响应和日志不包含连接信息。
 
+`event_rate_limits` 每行是一个匿名 IP 哈希的一分钟固定窗口桶：`window_started_at` 是当前窗口开始时间，`request_count` 是该窗口已获准进入写事件流程的请求数。协议校验通过后先消耗限流，再调用 `record_event()`；后续事件写入失败仍计数。待部署的 Supabase Cron 任务每日 19:30 UTC 先删除超过 30×24 小时且对应上海日已标记汇总成功的 `events`，再清理窗口开始已超过 1 天的限流桶。日汇总下一步实现，并须在同一汇总事务最后写入 `event_daily_rollup_status`；当前状态表为空时不会删除原始事件。任务和运行历史从 Dashboard 的 Cron 页面或 `cron.job`、`cron.job_run_details` 查看。
+
 ## 3. 部署链路与配置
 
 ```text
 浏览器 → www.moyufuns.com → Vercel 返回主站页面
-       → iframe 请求 games.moyufuns.com/games/slash/v1/index.html
+       → iframe 请求 games.moyufuns.com/games/slash/v2/index.html
          → Cloudflare CDN（命中直接返回，未命中从 R2 读取）
          → 浏览器执行游戏 HTML / CSS / JavaScript
 ```
@@ -55,7 +62,7 @@
 | 服务 | 当前用途与入口 |
 | --- | --- |
 | Vercel | Next.js 主站：[www.moyufuns.com](https://www.moyufuns.com) · [控制台](https://vercel.com/dashboard) |
-| Cloudflare R2 + CDN | 游戏存储与分发：[乱刃 v1](https://games.moyufuns.com/games/slash/v1/index.html) · [控制台](https://dash.cloudflare.com/) |
+| Cloudflare R2 + CDN | 游戏存储与分发：[乱刃 v2](https://games.moyufuns.com/games/slash/v2/index.html) · [控制台](https://dash.cloudflare.com/) |
 | Supabase | 托管 PostgreSQL，保存游戏、版本和统计事件；迁移与权限说明见 `supabase/README.md` |
 
 主站生产环境设置 `GAMES_ORIGIN=https://games.moyufuns.com`、Transaction Pooler 的 `MOYUFUN_WEB_DATABASE_URL`，以及与发布环境约定一致的 `MOYUFUN_REVALIDATE_SECRET`。这些变量均为服务端配置；数据库连接和刷新 secret 不得使用 `NEXT_PUBLIC_` 前缀。`GAMES_ORIGIN` 同时决定游戏 URL 和 CSP，变更后重新构建部署。游戏文件独立上传到 R2，部署主站不会自动发布游戏。
@@ -70,16 +77,17 @@
 
 | 本地文件 | URL 路径 / R2 对象键 |
 | --- | --- |
-| `games/games/slash/v1/index.html` | `/games/slash/v1/index.html` / `games/slash/v1/index.html` |
+| `games/slash/v1/index.html` | `/games/slash/v1/index.html` / `games/slash/v1/index.html` |
+| `games/slash/v2/index.html` | `/games/slash/v2/index.html` / `games/slash/v2/index.html` |
 
-新增游戏时，在 `games/games/<slug>/<version>/` 放入文件，并通过发布角色登记游戏及版本。先验证本地链路，再将运行文件按同一路径上传 R2；确认可访问后，在事务中上架或切换当前版本，随后调用受保护的目录缓存失效接口。新版本使用新目录，回滚时切回已保留的旧版本并再次失效缓存。单包上限 30 MB，凭据保存在服务端或发布环境；自动包检查与发布脚本见 TODO。
+新增游戏时，在 `games/<slug>/<version>/` 放入文件，并通过发布角色登记游戏及版本。本地静态服务器用 `games/serve.json` 将数据库 URL 路径映射到该目录。先验证本地链路，再将运行文件按同一路径上传 R2；确认可访问后，在事务中上架或切换当前版本，随后调用受保护的目录缓存失效接口。新版本使用新目录，回滚时切回已保留的旧版本并再次失效缓存。单包上限 30 MB，凭据保存在服务端或发布环境；自动包检查与发布脚本见 TODO。
 
-检查命令统一见 README。目录迁移已通过 Node 24 生产构建、lint、游戏冒烟测试和线上验收；线上覆盖首页、详情、游玩、未知 slug 404 及缓存刷新鉴权。
+检查命令统一见 README。目录与事件采集已通过 Node 24 测试、lint、生产构建、游戏无头测试和线上验收；线上覆盖首页、详情、Slash v2 游玩与七类事件的 204 响应及幂等重放。
 
 ## 5. 下一阶段与维护
 
-Supabase 表、RLS、最小权限角色和「乱刃」v1 已部署。主站目录使用 5 分钟兜底刷新和受保护的按需失效；角色权限见 `supabase/README.md`。
+Supabase 表、RLS、最小权限角色和「乱刃」v2 已部署。主站目录使用 5 分钟兜底刷新和受保护的按需失效；角色权限见 `supabase/README.md`。
 
-测试周期和指标口径见 [METRICS.md](METRICS.md)。`/api/events` 已完成；下一步按 TODO 第 5 项接入 SDK 和事件采集，随后实现指标查询和数据保留。
+测试周期和指标口径见 [METRICS.md](METRICS.md)。`/api/events`、浏览器身份与会话、页面事件和游戏 SDK 已完成；受汇总状态保护的原始事件删除与限流桶清理迁移已准备、尚未部署。下一步实现指标查询和长期日汇总，并在汇总事务最后登记成功日期。
 
 后续完成发布自动化、隐私政策与条款、SEO 和多游戏验收，按 TODO 推进。MVP 固定采用 Vercel、Supabase、R2 与 CDN，由内部发布游戏；搜索、社区互动、云存档和第三方上传不在本轮范围。完成任务后更新本文现状并勾选 TODO。

@@ -12,6 +12,7 @@
 - `repair_slash_current_version`：向前修复旧种子 statement 未完成的「乱刃」v1 上架与当前版本切换。
 - `add_event_rate_limits`：创建仅存 HMAC 桶键的数据库共享限流表和原子计数函数。
 - `add_event_insert_function`：通过安全定义函数完成事件幂等写入，并撤销主站角色对原始事件表的直接写权限。
+- `schedule_event_retention_maintenance`：启用 `pg_cron`，创建日汇总完成状态、受状态保护的原始事件删除与过期限流桶清理函数，并注册每日任务。
 
 远程部署前先预演：
 
@@ -39,6 +40,37 @@ pnpm supabase db lint --linked --level warning
 共享 Pooler 的自定义用户名格式为 `<role>.<project-ref>`。主机名必须从 Supabase Dashboard 的 Connect 面板复制，不要根据区域手写。
 
 主站使用 Postgres.js 连接 Transaction Pooler，并设置 `prepare: false`、`max: 1`，避免使用 Transaction 模式不支持的 prepared statements，同时限制每个 serverless 实例的连接数。
+
+## 统计保留与定时清理
+
+`event_rate_limits` 不是事件或逐请求日志。每行按匿名 IP 哈希复用一个固定一分钟窗口：`bucket_key` 是服务端以数据库连接密钥为 HMAC secret 生成的 SHA-256 十六进制摘要，数据库不保存原始 IP；`window_started_at` 是当前窗口开始时间；`request_count` 是窗口内已获准进入写事件流程的请求数（1～120）。协议校验通过后先调用限流函数，再记录事件，所以后续数据库写入失败仍消耗计数，API 层拒绝的请求则不消耗。
+
+`moyufun-daily-event-maintenance` 每日 19:30 UTC（上海次日 03:30）运行。它先删除超过滚动 30×24 小时且对应上海日存在 `event_daily_rollup_status` 的原始事件，再删除 `window_started_at < statement_timestamp() - interval '1 day'` 的限流桶。1 天是限流桶的运维缓冲，不是分析保留期；删除与原子 upsert 并发安全。当前限流表规模很小，未增加时间索引，原始事件清理复用现有 `events.received_at` 索引。
+
+`event_daily_rollup_status` 只记录哪个上海日已完成长期日汇总，不保存汇总结果。下一步聚合实现必须在写完该日全部汇总结果的同一事务最后插入 `summary_date`；事务失败时不得留下状态行。当前尚无聚合任务，因此部署后状态表初始为空，Cron 具备删除能力但不会删除任何 `events`。
+
+部署后用以下查询确认扩展、UTC 时区、唯一任务和最近运行结果；也可在 Dashboard 的 Integrations → Cron 查看任务与 History。`status = 'failed'` 时先查看同一行的 `return_message`，再查 Postgres 日志。`cron.job_run_details` 不会自动清理，当前每日一条，后续增加高频任务时需另定历史保留策略。
+
+```sql
+select extversion from pg_extension where extname = 'pg_cron';
+show cron.timezone;
+
+select jobid, jobname, schedule, command, username, active
+from cron.job
+where jobname = 'moyufun-daily-event-maintenance';
+
+select status, return_message, start_time, end_time
+from cron.job_run_details
+where jobid = (
+  select jobid
+  from cron.job
+  where jobname = 'moyufun-daily-event-maintenance'
+)
+order by start_time desc
+limit 10;
+```
+
+`show cron.timezone` 必须返回 `GMT` 或 `UTC`，任务查询必须只有一行且为启用状态。`supabase/tests/event_retention.sql` 提供带 `rollback` 的 30 天事件边界、未汇总保护、限流桶边界和权限验收样例，可在迁移后的测试数据库或 SQL Editor 中运行。
 
 ## 目录缓存失效
 
@@ -70,10 +102,15 @@ select
     'public.consume_event_rate_limit(text)',
     'execute'
   ) as web_can_rate_limit,
+  has_function_privilege(
+    'moyufun_web',
+    'public.run_event_retention_maintenance()',
+    'execute'
+  ) as web_can_run_event_maintenance,
   has_table_privilege('moyufun_publisher', 'public.games', 'update')
     as publisher_can_update_games,
   has_table_privilege('moyufun_publisher', 'public.events', 'select')
     as publisher_can_read_events;
 ```
 
-预期依次为 `false`、`false`、`true`、`false`、`true`、`true`、`false`。`record_event` 的执行权限由对应向前迁移在部署时断言。
+预期依次为 `false`、`false`、`true`、`false`、`true`、`false`、`true`、`false`。`record_event` 的执行权限由对应向前迁移在部署时断言；清理函数也不得授权给 `anon`、`authenticated`、`moyufun_web` 或 `moyufun_publisher`。
