@@ -1,6 +1,6 @@
 # Accounts and achievements
 
-**Status:** Design — settled, not yet implemented. Milestones: M1 ☑ · M2 ☐ · M3 ☐ · M4 ☐ · M5 ☐ · M6 ☐
+**Status:** Design — settled, not yet implemented. Milestones: M1 ☑ · M2 ☑ · M3 ☐ · M4 ☐ · M5 ☐ · M6 ☐
 
 Players create an account with email and password, and games report achievements that are saved to that account. Achievements are private to each user; there is no ranking or public profile.
 
@@ -82,7 +82,7 @@ Keep `supabase/config.toml` (local) and the production Dashboard in sync; the re
 - Resend free tier is 100 emails/day, 3,000/month. Keep Supabase's email rate limit at or below that.
 - Local development: `pnpm supabase start`, then `.env.local` sets `SUPABASE_URL=http://127.0.0.1:54321`, `SUPABASE_PUBLISHABLE_KEY` from `supabase status`, `SITE_URL=http://localhost:3000`. `database.ts` requires the pooler username format `moyufun_web.<x>`, so create a local login role once: `create role "moyufun_web.local" login password '…' in role moyufun_web;` and use it in `MOYUFUN_WEB_DATABASE_URL` (port 54322). Auth forms are Server Actions rendered by one client `AuthForm` (`useActionState`); the email input is controlled so React's post-action form reset keeps it after an error.
 
-### Data model (migration `supabase/migrations/<ts>_add_achievements.sql`)
+### Data model (migration `supabase/migrations/20260930120000_add_achievements.sql`)
 
 ```sql
 achievements (
@@ -125,7 +125,7 @@ Grants and RLS:
 - `achievements`: RLS on. `moyufun_web` gets `select` with a policy limited to active achievements of listed games (same shape as `games_web_select`). `moyufun_publisher` gets `select, insert, update` (no delete).
 - `user_achievements`: RLS on, no grants to any app role; reached only through the functions.
 - The migration ends with a `do $$ … $$` block asserting these privileges, like `verify_core_database`.
-- `supabase/tests/achievements.sql` (wrapped in `begin; … rollback;`) covers: unknown key, inactive key, wrong game/version pair, double unlock, per-game filter, cascade on user delete, and the privilege matrix.
+- `supabase/tests/achievements.sql` (wrapped in `begin; … rollback;`) covers: unknown key, inactive key, wrong game/version pair, double unlock, per-game filter, retired unlocks still listed, `delete_user_account` removing the auth user with cascade, and the privilege matrix. Run locally with `docker exec -i supabase_db_MoYuFun psql -U postgres -v ON_ERROR_STOP=1 < supabase/tests/achievements.sql` after `pnpm supabase migration up --local`; verified in M2 that the `postgres` owner can delete from `auth.users`.
 
 ### Catalog
 

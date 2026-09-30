@@ -18,6 +18,13 @@ export type GameControl = {
   action: string;
 };
 
+export type GameAchievement = {
+  key: string;
+  name: string;
+  description: string;
+  symbol: string;
+};
+
 export type Game = {
   id: string;
   versionId: string;
@@ -30,6 +37,7 @@ export type Game = {
   cover: GameCover;
   entryPath: string;
   sortOrder: number;
+  achievements: readonly GameAchievement[];
 };
 
 type GameRow = {
@@ -44,6 +52,7 @@ type GameRow = {
   cover: unknown;
   entry_path: unknown;
   sort_order: unknown;
+  achievements: unknown;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -89,6 +98,23 @@ function mapGame(row: GameRow): Game {
     throw new Error("Invalid game catalog field: sort_order");
   }
 
+  if (!Array.isArray(row.achievements)) {
+    throw new Error("Invalid game catalog field: achievements");
+  }
+
+  const achievements = row.achievements.map((achievement) => {
+    if (!isRecord(achievement)) {
+      throw new Error("Invalid game catalog field: achievements");
+    }
+
+    return {
+      key: readString(achievement.key, "achievements.key"),
+      name: readString(achievement.name, "achievements.name"),
+      description: readString(achievement.description, "achievements.description"),
+      symbol: readString(achievement.symbol, "achievements.symbol"),
+    };
+  });
+
   return {
     id: readString(row.id, "id"),
     versionId: readString(row.version_id, "version_id"),
@@ -109,6 +135,7 @@ function mapGame(row: GameRow): Game {
     },
     entryPath: readString(row.entry_path, "entry_path"),
     sortOrder: row.sort_order as number,
+    achievements,
   };
 }
 
@@ -126,7 +153,24 @@ async function readGames(): Promise<Game[]> {
       g.controls,
       g.cover,
       g.sort_order,
-      v.entry_path
+      v.entry_path,
+      coalesce(
+        (
+          select json_agg(
+            json_build_object(
+              'key', a.key,
+              'name', a.name,
+              'description', a.description,
+              'symbol', a.symbol
+            )
+            order by a.sort_order, a.key
+          )
+          from public.achievements a
+          where a.game_id = g.id
+            and a.is_active
+        ),
+        '[]'::json
+      ) as achievements
     from public.games g
     join public.game_versions v
       on v.game_id = g.id
