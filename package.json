@@ -11,7 +11,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/*.test.mts"
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/*.test.mts",
+    "game": "node --env-file-if-exists=.env.publish --experimental-strip-types scripts/game-release.mts",
+    "game:local": "node --env-file-if-exists=.env.publish.local --experimental-strip-types scripts/game-release.mts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",
@@ -27,6 +29,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "aws4fetch": "^1.0.20",
     "eslint": "^9",
     "eslint-config-next": "16.3.0",
     "serve": "^14.2.6",

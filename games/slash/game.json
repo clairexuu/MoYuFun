@@ -1,0 +1,30 @@
+{
+  "slug": "slash",
+  "name": "乱刃 · 斩击大乱斗",
+  "shortDescription": "选两种斩击，与五名 AI 剑客展开快节奏混战。",
+  "description": "在六种斩击中自由搭配两种招式，利用走位、突进和击退效果击败对手。率先取得十次击杀即可赢下这场乱斗。",
+  "tags": ["动作", "单人", "键鼠"],
+  "controls": [
+    { "input": "WASD / 方向键", "action": "移动" },
+    { "input": "鼠标", "action": "瞄准" },
+    { "input": "鼠标左键 / J", "action": "使用左槽斩击" },
+    { "input": "鼠标右键 / K", "action": "使用右槽斩击" },
+    { "input": "M", "action": "静音或恢复声音" },
+    { "input": "R / B", "action": "再战 / 返回配装" }
+  ],
+  "cover": {
+    "symbol": "斩",
+    "eyebrow": "TOP-DOWN ARENA",
+    "accent": "#6f8cff",
+    "accentSecondary": "#9b6dff"
+  },
+  "sortOrder": 10,
+  "achievements": [
+    { "key": "first_blood", "name": "初见血", "description": "取得一次击杀。", "symbol": "血" },
+    { "key": "first_win", "name": "首胜", "description": "赢下一局。", "symbol": "胜" },
+    { "key": "flawless", "name": "无伤", "description": "不死一次赢下一局。", "symbol": "完" },
+    { "key": "rampage", "name": "连斩", "description": "中途不死连续击杀 5 次。", "symbol": "连" },
+    { "key": "swift", "name": "速战", "description": "在 120 秒内获胜。", "symbol": "速" },
+    { "key": "ranged", "name": "远斩", "description": "以剑气加穿刺获胜。", "symbol": "远" }
+  ]
+}
