@@ -7,6 +7,7 @@ import { createInterface } from "node:readline/promises";
 import { setTimeout as sleep } from "node:timers/promises";
 import { parseArgs } from "node:util";
 
+import { AwsClient } from "aws4fetch";
 import postgres from "postgres";
 
 import { checkPackage, type Package } from "./game-package.mts";
@@ -71,6 +72,14 @@ function readEnv() {
     siteOrigin,
     isLocal,
     revalidateSecret: requireEnv("MOYUFUN_REVALIDATE_SECRET"),
+    r2: isLocal
+      ? undefined
+      : {
+          accountId: requireEnv("R2_ACCOUNT_ID"),
+          bucket: requireEnv("R2_BUCKET"),
+          accessKeyId: requireEnv("R2_ACCESS_KEY_ID"),
+          secretAccessKey: requireEnv("R2_SECRET_ACCESS_KEY"),
+        },
   };
 }
 type Env = ReturnType<typeof readEnv>;
@@ -88,10 +97,32 @@ async function confirm(env: Env, summary: string): Promise<void> {
 // ---------- shared steps ----------
 
 const entryPath = `/games/${slug}/${version}/index.html`;
+const objectKey = (file: string) =>
+  `games/${slug}/${version}/${file.split("/").map(encodeURIComponent).join("/")}`;
+
+async function upload(env: Env, pkg: Package): Promise<void> {
+  const { accountId, bucket, accessKeyId, secretAccessKey } = env.r2!;
+  const client = new AwsClient({ accessKeyId, secretAccessKey, service: "s3", region: "auto" });
+  for (const file of pkg.files) {
+    const url = `https://${accountId}.r2.cloudflarestorage.com/${bucket}/${objectKey(file.path)}`;
+    const response = await client.fetch(url, {
+      method: "PUT",
+      body: await readFile(path.join(pkg.versionDir, file.path)),
+      headers: {
+        "Content-Type": file.contentType,
+        "Cache-Control": "public, max-age=31536000, immutable",
+      },
+    });
+    if (!response.ok) {
+      throw new Error(`upload: ${file.path} returned ${response.status} ${await response.text()}`);
+    }
+    console.log(`  uploaded ${file.path}`);
+  }
+}
 
 async function verify(env: Env, pkg: Package): Promise<void> {
   for (const file of pkg.files) {
-    const url = `${env.gamesOrigin}/games/${slug}/${version}/${file.path}`;
+    const url = `${env.gamesOrigin}/${objectKey(file.path)}`;
     const isEntry = file.path === "index.html";
     const response = await fetch(url, {
       headers: isEntry ? { Origin: env.siteOrigin } : {},
@@ -151,11 +182,8 @@ async function publish(): Promise<void> {
       where g.slug = ${slug} and v.version_key = ${version}`;
     if (existing) throw new Error(`${slug} ${version} is already published; use switch`);
 
-    if (env.isLocal) {
-      console.log("localhost GAMES_ORIGIN: skipping upload");
-    } else {
-      throw new Error("R2 upload is not implemented yet (M3)");
-    }
+    if (env.isLocal) console.log("localhost GAMES_ORIGIN: skipping upload");
+    else await upload(env, pkg);
     await verify(env, pkg);
 
     const m = pkg.manifest;

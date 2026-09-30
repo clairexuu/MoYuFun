@@ -1,6 +1,6 @@
 # Game release
 
-**Status:** Design — settled, not yet implemented. Milestones: M1 ☑ · M2 ☑ · M3 ☐ · M4 ☐
+**Status:** Design — settled, not yet implemented. Milestones: M1 ☑ · M2 ☑ · M3 ☑ · M4 ☐
 
 One command checks a game version, uploads it to R2, registers it and makes it current, then clears the catalog cache. A second command rolls back to an earlier version. Each game's catalog data lives in `games/<slug>/game.json`, synced by the script. All games are AI-made in-house, so there is no licence or third-party review step.
 
