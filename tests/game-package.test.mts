@@ -155,6 +155,18 @@ test("rejects SDK misuse", async () => {
     { index: `${INDEX}<script>emitMoYuFunAchievement("nope")</script>` },
     /missing from game\.json: nope/,
   );
+  await rejects(
+    {
+      manifest: {
+        ...MANIFEST,
+        achievements: [
+          ...MANIFEST.achievements,
+          { key: "ghost", name: "幽", description: "从未触发。", symbol: "幽" },
+        ],
+      },
+    },
+    /never mentioned in runtime files: ghost/,
+  );
   assert.deepEqual(
     findAchievementKeys(`emitMoYuFunAchievement( "a" ); emitMoYuFunAchievement('b_c')`),
     ["a", "b_c"],

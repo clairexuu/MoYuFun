@@ -266,6 +266,15 @@ export async function checkPackage(
       `emitted achievement keys missing from game.json: ${[...new Set(unknown)].join(", ")}`,
     );
   }
+  // ponytail: substring match, not a parse; catches typos and unimplemented keys, not dynamic keys.
+  const unused = [...known].filter(
+    (key) => !texts.some((t) => t.includes(`'${key}'`) || t.includes(`"${key}"`)),
+  );
+  if (unused.length) {
+    throw new Error(
+      `game.json achievements never mentioned in runtime files: ${unused.join(", ")}`,
+    );
+  }
 
   return { manifest, files, totalBytes, versionDir };
 }

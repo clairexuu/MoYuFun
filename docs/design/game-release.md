@@ -1,6 +1,6 @@
 # Game release
 
-**Status:** Design — settled, not yet implemented. Milestones: M1 ☑ · M2 ☐ · M3 ☐ · M4 ☐
+**Status:** Design — settled, not yet implemented. Milestones: M1 ☑ · M2 ☑ · M3 ☐ · M4 ☐
 
 One command checks a game version, uploads it to R2, registers it and makes it current, then clears the catalog cache. A second command rolls back to an earlier version. Each game's catalog data lives in `games/<slug>/game.json`, synced by the script. All games are AI-made in-house, so there is no licence or third-party review step.
 
@@ -70,6 +70,7 @@ games/<slug>/
 **SDK checks:**
 - The runtime files contain the production parent origin `https://www.moyufuns.com`. Without it, a game posts to the wrong origin in production and every event is silently lost.
 - Every string literal passed to `emitMoYuFunAchievement('…')` or `emitMoYuFunAchievement("…")` in runtime files is a key in `game.json`.
+- Every key in `game.json` appears as a quoted string literal somewhere in the runtime files. Gotcha: a game that wraps the SDK call (乱刃 v3 calls `unlockAchievement('ranged')`) hides its keys from the first rule, so this reverse rule and the headless test's message-sequence assertion are what actually gate a typo.
 - The headless test must assert the SDK message sequence, as `games/slash/v3/test_headless.js` does. Message shapes and ordering rules are in `accounts-achievements.md` → Game protocol.
 
 ## Commands
