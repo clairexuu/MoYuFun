@@ -223,6 +223,20 @@ async function publish(): Promise<void> {
       await tx`
         update public.achievements set is_active = false
         where game_id = ${game.id} and is_active and not (key = any(${keys}::text[]))`;
+      for (const [index, s] of m.stats.entries()) {
+        await tx`
+          insert into public.game_stats (game_id, key, name, max_per_round, sort_order, is_active)
+          values (${game.id}, ${s.key}, ${s.name}, ${s.maxPerRound}, ${index + 1}, true)
+          on conflict (game_id, key) do update set
+            name = excluded.name,
+            max_per_round = excluded.max_per_round,
+            sort_order = excluded.sort_order,
+            is_active = true`;
+      }
+      const statKeys = m.stats.map((s) => s.key);
+      await tx`
+        update public.game_stats set is_active = false
+        where game_id = ${game.id} and is_active and not (key = any(${statKeys}::text[]))`;
       await tx`
         update public.games
         set current_version_id = ${release.id}, is_listed = true, updated_at = now()

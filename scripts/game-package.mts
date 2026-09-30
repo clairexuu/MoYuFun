@@ -39,6 +39,8 @@ export type Achievement = {
   symbol: string;
 };
 
+export type Stat = { key: string; name: string; maxPerRound: number };
+
 export type Manifest = {
   slug: string;
   name: string;
@@ -54,6 +56,7 @@ export type Manifest = {
   };
   sortOrder: number;
   achievements: Achievement[];
+  stats: Stat[];
 };
 
 export type RuntimeFile = { path: string; bytes: number; contentType: string };
@@ -68,6 +71,7 @@ const MANIFEST_KEYS = [
   "cover",
   "sortOrder",
   "achievements",
+  "stats",
 ];
 const COVER_KEYS = ["symbol", "eyebrow", "accent", "accentSecondary"];
 
@@ -138,6 +142,37 @@ export function validateManifest(json: unknown): Manifest {
       if (!isText(a.symbol, 1, 2)) errors.push(`${at}.symbol must be 1–2 chars`);
       for (const key of Object.keys(a)) {
         if (!["key", "name", "description", "symbol"].includes(key)) {
+          errors.push(`${at} has unknown key "${key}"`);
+        }
+      }
+    });
+  }
+
+  if (json.stats === undefined) json.stats = [];
+  if (!Array.isArray(json.stats)) {
+    errors.push("stats must be an array");
+  } else {
+    const seen = new Set<string>();
+    json.stats.forEach((s, i) => {
+      const at = `stats[${i}]`;
+      if (!isRecord(s)) return errors.push(`${at} must be an object`);
+      if (!isText(s.key, 1, 40) || !ACHIEVEMENT_KEY_PATTERN.test(s.key)) {
+        errors.push(`${at}.key must match ^[a-z0-9]+(?:_[a-z0-9]+)*$ (≤ 40)`);
+      } else if (seen.has(s.key)) {
+        errors.push(`${at}.key "${s.key}" is duplicated`);
+      } else {
+        seen.add(s.key);
+      }
+      if (!isText(s.name, 1, 20)) errors.push(`${at}.name must be 1–20 chars`);
+      if (
+        !Number.isInteger(s.maxPerRound) ||
+        (s.maxPerRound as number) < 1 ||
+        (s.maxPerRound as number) > 1_000_000
+      ) {
+        errors.push(`${at}.maxPerRound must be an integer from 1 to 1000000`);
+      }
+      for (const key of Object.keys(s)) {
+        if (!["key", "name", "maxPerRound"].includes(key)) {
           errors.push(`${at} has unknown key "${key}"`);
         }
       }

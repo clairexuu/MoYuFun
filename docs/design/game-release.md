@@ -4,7 +4,7 @@
 
 `pnpm game publish <slug> <version>` checks a game version, uploads it to R2, registers it and makes it current, then clears the catalog cache. `pnpm game switch` rolls back to an earlier version. Each game's catalog data lives in `games/<slug>/game.json`, synced by the script. All games are AI-made in-house, so there is no licence or third-party review step.
 
-Read first: `DEV.md` §3–4 (deploy chain, local file ↔ R2 key mapping), `supabase/README.md` (roles, revalidate endpoint), `docs/design/accounts-achievements.md` → Game protocol, `scripts/game-package.mts`, `scripts/game-release.mts`, `games/slash/`.
+Read first: `DEV.md` §3–4 (deploy chain, local file ↔ R2 key mapping), `supabase/README.md` (roles, revalidate endpoint), `docs/design/accounts-achievements.md` → Game protocol, `docs/design/game-stats.md` (stats contract), `scripts/game-package.mts`, `scripts/game-release.mts`, `games/slash/`.
 
 ## Decisions
 
@@ -54,6 +54,9 @@ games/<slug>/
   "sortOrder": 0,
   "achievements": [
     { "key": "first_blood", "name": "初见血", "description": "取得一次击杀。", "symbol": "血" }
+  ],
+  "stats": [
+    { "key": "kills", "name": "击杀", "maxPerRound": 10 }
   ]
 }
 ```
@@ -61,6 +64,7 @@ games/<slug>/
 - `slug` equals the folder name and matches `^[a-z0-9]+(?:-[a-z0-9]+)*$`.
 - `name`, `shortDescription`, `description` and every `cover` field are non-empty strings. `tags` is an array of strings. `controls` is an array of `{input, action}`. `sortOrder` is an integer.
 - Achievements: `key` matches `^[a-z0-9]+(?:_[a-z0-9]+)*$` and is at most 40 characters; keys are unique; `name` is 1–20 characters, `description` 1–60, `symbol` 1–2. Array order becomes `sort_order` (1-based). An achievement removed from the array is retired (`is_active = false`), never deleted.
+- Stats (optional, default `[]`): `key` matches the same regex and is at most 40 characters; keys are unique; `name` is 1–20 characters; `maxPerRound` is an integer from 1 to 1,000,000. Array order becomes `sort_order`. A stat removed from the array is retired, never deleted. See `game-stats.md`.
 - No other top-level keys.
 
 **Runtime files** are every file in the version folder except `test_headless.js`, `README.md` and dotfiles (`.DS_Store` and the like, silently skipped). Rules:
@@ -72,7 +76,7 @@ games/<slug>/
 - They contain the production parent origin `https://www.moyufuns.com`. Without it, a game posts to the wrong origin in production and every event is silently lost.
 - Every string literal passed to `emitMoYuFunAchievement('…')` or `emitMoYuFunAchievement("…")` is a key in `game.json`.
 - Every key in `game.json` appears as a quoted string literal somewhere (D11).
-- The headless test must assert the SDK message sequence, as `games/slash/v3/test_headless.js` does. Message shapes and ordering rules are in `accounts-achievements.md` → Game protocol.
+- The headless test must assert the SDK message sequence, as `games/slash/v4/test_headless.js` does. Message shapes and ordering rules are in `accounts-achievements.md` → Game protocol and `game-stats.md` → Protocol.
 
 ## Commands
 
@@ -94,7 +98,7 @@ pnpm game:local <same arguments>          # uses .env.publish.local
 3. If the version already exists for this slug, stops with "already published; use switch".
 4. **Upload** (skipped when `GAMES_ORIGIN` is localhost): `PUT https://<R2_ACCOUNT_ID>.r2.cloudflarestorage.com/<R2_BUCKET>/games/<slug>/<version>/<path>` per runtime file, with its Content-Type and `Cache-Control: public, max-age=31536000, immutable`, signed by `AwsClient({ service: "s3", region: "auto" })`. Any non-2xx aborts before touching the DB.
 5. **Verify**: `GET ${GAMES_ORIGIN}/games/<slug>/<version>/<path>` for every file must return 200 with the local file's SHA-256. The entry is fetched with `Origin: <SITE_URL origin>` and must answer `Access-Control-Allow-Origin` equal to that origin or `*`.
-6. **Register in one transaction** (publisher role): upsert `games` by slug from `game.json` (new games start unlisted with no current version); insert `game_versions` (`entry_path = /games/<slug>/<version>/index.html`, `file_size_bytes` = total runtime bytes, `release_notes` = `--notes` or null); upsert `achievements` on `(game_id, key)` with `sort_order` = array index + 1 and `is_active = true`, then set `is_active = false` for this game's keys missing from `game.json`; finally set `current_version_id`, `is_listed = true`, `updated_at = now()`.
+6. **Register in one transaction** (publisher role): upsert `games` by slug from `game.json` (new games start unlisted with no current version); insert `game_versions` (`entry_path = /games/<slug>/<version>/index.html`, `file_size_bytes` = total runtime bytes, `release_notes` = `--notes` or null); upsert `achievements` on `(game_id, key)` with `sort_order` = array index + 1 and `is_active = true`, then set `is_active = false` for this game's keys missing from `game.json`; upsert `game_stats` the same way (`name`, `max_per_round`, `sort_order`, `is_active = true`, then retire missing keys); finally set `current_version_id`, `is_listed = true`, `updated_at = now()`.
 7. **Revalidate**: `POST ${SITE_URL}/api/revalidate/games` with the bearer secret must return 200 (D10).
 8. **Smoke test**: `GET ${SITE_URL}/play/<slug>` must return 200 and contain the new `entry_path`, retried 5 times 3 s apart. On failure it says the DB is already committed and exits non-zero.
 

@@ -113,6 +113,39 @@ test("rejects bad and duplicate achievements", async () => {
   );
 });
 
+test("accepts declared stats and rejects bad ones", async () => {
+  const stat = { key: "kills", name: "击杀", maxPerRound: 10 };
+  await using pkg = await makePackage({ manifest: { ...MANIFEST, stats: [stat] } });
+  const result = await checkPackage(pkg.root, "demo", "v1");
+  assert.deepEqual(result.manifest.stats, [stat]);
+
+  await using bare = await makePackage();
+  assert.deepEqual((await checkPackage(bare.root, "demo", "v1")).manifest.stats, []);
+
+  await rejects({ manifest: { ...MANIFEST, stats: {} } }, /stats must be an array/);
+  await rejects(
+    { manifest: { ...MANIFEST, stats: [{ ...stat, key: "Bad-Key" }] } },
+    /stats\[0\]\.key must match/,
+  );
+  await rejects(
+    { manifest: { ...MANIFEST, stats: [{ ...stat, name: "" }] } },
+    /stats\[0\]\.name must be 1–20/,
+  );
+  await rejects(
+    { manifest: { ...MANIFEST, stats: [{ ...stat, maxPerRound: 0 }] } },
+    /maxPerRound must be an integer from 1 to 1000000/,
+  );
+  await rejects(
+    { manifest: { ...MANIFEST, stats: [{ ...stat, maxPerRound: 1.5 }] } },
+    /maxPerRound/,
+  );
+  await rejects(
+    { manifest: { ...MANIFEST, stats: [{ ...stat, extra: 1 }] } },
+    /stats\[0\] has unknown key "extra"/,
+  );
+  await rejects({ manifest: { ...MANIFEST, stats: [stat, stat] } }, /is duplicated/);
+});
+
 test("rejects unknown extensions and symlinks", async () => {
   await rejects({ extraFiles: { "data.bin": "x" } }, /data\.bin: unknown extension/);
 

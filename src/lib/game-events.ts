@@ -2,9 +2,12 @@ import type { BrowserEvent } from "./browser-events.ts";
 
 export const ACHIEVEMENT_KEY_PATTERN = /^[a-z0-9]+(?:_[a-z0-9]+)*$/;
 
+export type StatsReport = Record<string, number>;
+
 export type GameMessage =
   | { type: "ready" | "start" | "end" }
-  | { type: "achievement"; key: string };
+  | { type: "achievement"; key: string }
+  | { type: "stats"; stats: StatsReport };
 
 type MessageLike = {
   data: unknown;
@@ -17,6 +20,25 @@ export function isAchievementKey(value: unknown): value is string {
     typeof value === "string" &&
     value.length <= 40 &&
     ACHIEVEMENT_KEY_PATTERN.test(value)
+  );
+}
+
+// Shape only; the per-game caps are checked by the server (D2).
+export function isStatsReport(value: unknown): value is StatsReport {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const entries = Object.entries(value);
+  return (
+    entries.length >= 1 &&
+    entries.length <= 10 &&
+    entries.every(
+      ([key, count]) =>
+        isAchievementKey(key) &&
+        Number.isInteger(count) &&
+        (count as number) >= 0 &&
+        (count as number) <= 1_000_000,
+    )
   );
 }
 
@@ -48,6 +70,10 @@ function parseGameMessage(value: unknown): GameMessage | undefined {
     return { type: "achievement", key: message.key };
   }
 
+  if (keys === 4 && message.type === "stats" && isStatsReport(message.stats)) {
+    return { type: "stats", stats: message.stats };
+  }
+
   return undefined;
 }
 
@@ -73,6 +99,7 @@ export type GameLifecycleOptions = {
   context: GameEventContext;
   track: (event: BrowserEvent) => unknown;
   unlock: (key: string) => unknown;
+  report: (stats: StatsReport) => unknown;
   now: () => number;
   randomUUID: () => string;
   isVisible: () => boolean;
@@ -86,6 +113,7 @@ export function createGameLifecycle(options: GameLifecycleOptions) {
   let ready = false;
   let playId: string | undefined;
   let heartbeatTimer: unknown;
+  let statsReportedFor: string | undefined;
   const unlocked = new Set<string>();
 
   function stopHeartbeat() {
@@ -143,6 +171,13 @@ export function createGameLifecycle(options: GameLifecycleOptions) {
         if (!playId || unlocked.has(message.key)) return;
         unlocked.add(message.key);
         options.unlock(message.key);
+        return;
+      }
+      if (message.type === "stats") {
+        // Only during a round, once per round (D3).
+        if (!playId || statsReportedFor === playId) return;
+        statsReportedFor = playId;
+        options.report(message.stats);
         return;
       }
       if (message.type === "start") {

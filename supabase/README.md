@@ -16,6 +16,7 @@
 - `add_daily_game_metrics`：创建五项长期日汇总、D-2 最终化与只读查询函数，并将现有每日任务改为先汇总再安全清理。
 - `add_achievements`：创建 `achievements`、`user_achievements`（RLS，仅函数可达）及 `unlock_achievement`、`get_user_achievements`、`delete_user_account` 安全定义函数，并断言权限。
 - `publish_slash_v3`：登记「乱刃」v3、写入六项成就并切换当前版本。此后发布不再写迁移，由 `pnpm game publish` 同步 `games/<slug>/game.json`。
+- `add_game_stats`：创建 `game_stats`（每游戏声明的战绩项及单局上限）、`user_game_stats`（RLS，仅函数可达）及 `record_round_stats`、`get_user_stats` 安全定义函数，并断言权限。
 
 远程部署前先预演：
 
@@ -31,8 +32,8 @@ pnpm supabase db lint --linked --level warning
 
 迁移创建两个默认不可登录的角色：
 
-- `moyufun_web`：读取已上架游戏、当前版本及其启用成就，只执行事件记录、限流、日汇总只读和成就三个函数；不给原始事件、汇总表或 `user_achievements` 直接读写权限。
-- `moyufun_publisher`：读取、新建和更新游戏目录与成就定义，读取和新建不可变版本；不给事件权限和删除权限。成就用 `is_active = false` 下线，不删除。由 `pnpm game publish/switch` 使用（`scripts/game-release.mts`），见 `docs/design/game-release.md`。
+- `moyufun_web`：读取已上架游戏、当前版本及其启用成就，只执行事件记录、限流、日汇总只读、成就三个函数和战绩两个函数；不给原始事件、汇总表、`user_achievements` 或 `user_game_stats` 直接读写权限。
+- `moyufun_publisher`：读取、新建和更新游戏目录、成就与战绩项定义，读取和新建不可变版本；不给事件权限和删除权限。成就用 `is_active = false` 下线，不删除。由 `pnpm game publish/switch` 使用（`scripts/game-release.mts`），见 `docs/design/game-release.md`。
 
 为远程角色设置不同的随机密码后：
 
@@ -85,6 +86,8 @@ limit 10;
 Supabase Auth 只负责「用户是谁」；主站用 `@supabase/ssr` 在服务端持有会话，所有应用数据仍经 `moyufun_web` 与安全定义函数访问，不给 `authenticated` 角色任何策略。`supabase/config.toml` 的 `[auth*]` 段和 `supabase/templates/` 是配置与邮件模板的真源，生产 Dashboard 需同步：URL Configuration（Site URL 与 `/auth/confirm` 重定向）、Email provider（确认邮箱、安全修改密码、最短 8 位）、Emails → Templates 与 SMTP Settings（Resend）、Rate Limits（每小时 30 封）。
 
 `supabase/tests/achievements.sql` 带 `rollback`，覆盖未知/停用 key、版本与游戏不匹配、重复解锁、按游戏筛选、已下线成就保留、删除账号级联及权限矩阵。完整说明见 `docs/design/accounts-achievements.md`。
+
+`supabase/tests/game_stats.sql` 带 `rollback`，覆盖未声明/停用 key、超上限、负数、非整数、错误版本整单拒绝，多局累加，停用战绩项保留但不列出，删除账号级联及权限矩阵。完整说明见 `docs/design/game-stats.md`。
 
 ## 目录缓存失效
 

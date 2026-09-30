@@ -25,6 +25,11 @@ export type GameAchievement = {
   symbol: string;
 };
 
+export type GameStat = {
+  key: string;
+  name: string;
+};
+
 export type Game = {
   id: string;
   versionId: string;
@@ -38,6 +43,7 @@ export type Game = {
   entryPath: string;
   sortOrder: number;
   achievements: readonly GameAchievement[];
+  stats: readonly GameStat[];
 };
 
 type GameRow = {
@@ -53,6 +59,7 @@ type GameRow = {
   entry_path: unknown;
   sort_order: unknown;
   achievements: unknown;
+  stats: unknown;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -115,6 +122,21 @@ function mapGame(row: GameRow): Game {
     };
   });
 
+  if (!Array.isArray(row.stats)) {
+    throw new Error("Invalid game catalog field: stats");
+  }
+
+  const stats = row.stats.map((stat) => {
+    if (!isRecord(stat)) {
+      throw new Error("Invalid game catalog field: stats");
+    }
+
+    return {
+      key: readString(stat.key, "stats.key"),
+      name: readString(stat.name, "stats.name"),
+    };
+  });
+
   return {
     id: readString(row.id, "id"),
     versionId: readString(row.version_id, "version_id"),
@@ -136,6 +158,7 @@ function mapGame(row: GameRow): Game {
     entryPath: readString(row.entry_path, "entry_path"),
     sortOrder: row.sort_order as number,
     achievements,
+    stats,
   };
 }
 
@@ -170,7 +193,19 @@ async function readGames(): Promise<Game[]> {
             and a.is_active
         ),
         '[]'::json
-      ) as achievements
+      ) as achievements,
+      coalesce(
+        (
+          select json_agg(
+            json_build_object('key', s.key, 'name', s.name)
+            order by s.sort_order, s.key
+          )
+          from public.game_stats s
+          where s.game_id = g.id
+            and s.is_active
+        ),
+        '[]'::json
+      ) as stats
     from public.games g
     join public.game_versions v
       on v.game_id = g.id

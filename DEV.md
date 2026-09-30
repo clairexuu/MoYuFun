@@ -1,6 +1,6 @@
 # MoYuFun 开发说明
 
-面向接手开发者的代码与部署索引。当前已上线「乱刃」v3，游戏目录、七类事件采集、内部 `/stats` 看板、邮箱账号与成就均通过生产验收。账号与成就的完整说明见 [docs/design/accounts-achievements.md](docs/design/accounts-achievements.md)。后续顺序见 [TODO.md](TODO.md)，启动命令见 [README.md](README.md)。
+面向接手开发者的代码与部署索引。当前已上线「乱刃」v3，游戏目录、七类事件采集、内部 `/stats` 看板、邮箱账号与成就均通过生产验收；「乱刃」v4 与全时战绩已完成本地验收，待生产发布。账号与成就的完整说明见 [docs/design/accounts-achievements.md](docs/design/accounts-achievements.md)，战绩见 [docs/design/game-stats.md](docs/design/game-stats.md)。后续顺序见 [TODO.md](TODO.md)，启动命令见 [README.md](README.md)。
 
 ## 1. 代码结构与功能入口
 
@@ -17,22 +17,22 @@
 | `src/lib/event-request.ts`、`events.ts` | 统计请求大小与逐事件校验，以及 server-only 限流和幂等写入 |
 | `src/lib/daily-metrics.ts` | `/stats` 唯一日汇总读取接口，校验筛选条件并映射最小只读结果 |
 | `src/lib/browser-events.ts` | 浏览器匿名访客、30 分钟会话和 `/api/events` 上报 |
-| `src/lib/game-events.ts` | iframe 消息校验（`ready`/`start`/`end`/`achievement`）及加载、游玩、心跳与成就转发生命周期 |
+| `src/lib/game-events.ts` | iframe 消息校验（`ready`/`start`/`end`/`achievement`/`stats`）及加载、游玩、心跳、成就与战绩转发生命周期 |
 | `src/lib/auth.ts`、`auth-request.ts`、`auth-actions.ts` | server-only Supabase Auth 客户端与当前用户读取；`next` 参数与 Cookie 加固的纯函数；注册、登录、找回、重置、退出、删除账号的 Server Actions |
-| `src/lib/achievement-request.ts`、`achievements.ts` | 成就解锁请求校验与状态映射（可单测），以及 server-only 限流与数据库调用 |
+| `src/lib/achievement-request.ts`、`stats-request.ts`、`achievements.ts` | 成就解锁与战绩上报的请求校验与状态映射（可单测），以及 server-only 限流与数据库调用 |
 | `src/app/api/events/route.ts` | 单事件统计入口，将合法事件交给服务端写入模块 |
 | `src/app/api/revalidate/games/route.ts` | 受 Bearer secret 保护的游戏目录缓存失效入口 |
-| `src/app/api/me/route.ts`、`api/me/achievements/route.ts`、`api/achievements/route.ts` | 当前用户、用户成就查询、成就解锁上报 |
+| `src/app/api/me/route.ts`、`api/me/achievements/route.ts`、`api/achievements/route.ts`、`api/stats/route.ts` | 当前用户、用户成就与战绩查询、成就解锁上报、单局战绩上报 |
 | `src/app/{signup,login,forgot-password,reset-password,me}/page.tsx`、`src/app/auth/confirm/route.ts` | 账号页面与邮件链接确认入口 |
 | `src/app/privacy/page.tsx`、`terms/page.tsx` | 隐私政策与使用条款 |
 | `src/app/stats/page.tsx`、`src/proxy.ts` | 服务端渲染内部指标看板；proxy 对 `/stats/:path*` 做 HTTP Basic Auth，并为账号路由刷新 Supabase 会话 Cookie |
 | `src/components/game-player.tsx` | 客户端播放器：可信 iframe 适配、加载与游玩事件、重试、全屏、移动端提示和成就弹窗/上报 |
-| `src/components/auth-form.tsx`、`auth-shell.tsx`、`account-menu.tsx`、`game-achievements.tsx` | 账号表单与页面外壳、页头账号菜单、详情页成就列表 |
+| `src/components/auth-form.tsx`、`auth-shell.tsx`、`account-menu.tsx`、`game-achievements.tsx` | 账号表单与页面外壳、页头账号菜单、详情页战绩板与成就列表 |
 | `src/components/page-event.tsx` | 首页与详情页的一次性访问事件 |
 | `src/components/game-card.tsx`、`game-cover.tsx` | 卡片与封面；封面由符号和配色绘制 |
 | `src/components/site-header.tsx`、`site-footer.tsx` | 共用页头、页脚 |
-| `games/slash/v1/`、`v2/`、`v3/` | 保留的历史版本与当前版本 v3（接入事件 SDK 与六项单局成就）；各含游戏、玩法 README 和无头测试 |
-| `supabase/migrations/` | Supabase 数据库结构、成就表与函数、「乱刃」版本发布迁移 |
+| `games/slash/v1/`、`v2/`、`v3/`、`v4/` | 保留的历史版本、线上版本 v3（事件 SDK 与六项单局成就）与待发布的 v4（加上每局战绩上报）；各含游戏、玩法 README 和无头测试 |
+| `supabase/migrations/` | Supabase 数据库结构、成就与战绩表及函数、「乱刃」版本发布迁移 |
 | `supabase/templates/`、`supabase/config.toml` | 验证与重置邮件模板及本地 Auth 配置（生产在 Dashboard 中镜像） |
 | `scripts/m5-production-wizard.sh` | 账号与成就上线的手工步骤向导（Resend、Supabase Dashboard、Vercel、R2、迁移、部署） |
 | `scripts/game-release.mts`、`game-package.mts`、`games/<slug>/game.json` | `pnpm game check/publish/switch`：包检查、上传 R2、登记版本并同步目录与成就、回滚；说明见 [docs/design/game-release.md](docs/design/game-release.md) |
@@ -94,6 +94,7 @@
 | `games/slash/v1/index.html` | `/games/slash/v1/index.html` / `games/slash/v1/index.html` |
 | `games/slash/v2/index.html` | `/games/slash/v2/index.html` / `games/slash/v2/index.html` |
 | `games/slash/v3/index.html` | `/games/slash/v3/index.html` / `games/slash/v3/index.html` |
+| `games/slash/v4/index.html` | `/games/slash/v4/index.html` / `games/slash/v4/index.html` |
 
 新增游戏或版本时，在 `games/<slug>/<version>/` 放入文件并更新 `games/<slug>/game.json`，然后用 `pnpm game check`、`pnpm game:local publish` 和 `pnpm game publish` 检查、本地验证并发布，用 `pnpm game switch` 回滚。包契约、命令步骤、发布环境变量和本地发布角色见 [docs/design/game-release.md](docs/design/game-release.md)。本地静态服务器用 `games/serve.json` 将 `/games/<slug>/<version>/*` 映射到该目录。
 
@@ -105,4 +106,4 @@ Supabase 表、RLS、最小权限角色和「乱刃」v2 已部署。主站目�
 
 测试周期和指标口径见 [METRICS.md](METRICS.md)。`/api/events`、浏览器身份与会话、页面事件和游戏 SDK 已完成；受汇总状态保护的原始事件删除、限流桶清理、五项指标查询、长期日汇总和 D-2 最终化均已部署到 Supabase，并通过远程 lint、迁移版本、回滚事务及首次维护验收。内部 `/stats` 已部署到 Vercel 并配置 `MOYUFUN_STATS_PASSWORD`，线上鉴权与看板数据均已验收；P0 数据与统计里程碑全部完成。7 日回访推迟到后续增强，不在看板保留占位。
 
-邮箱账号、成就与隐私政策/使用条款已于 2026-09-30 上线（TODO 第 7 项完成）。发布脚本与回滚已实现并通过本地验收（TODO 第 8 项），首次生产发布待执行。后续完成 SEO 和多游戏验收，按 TODO 推进。MVP 固定采用 Vercel、Supabase、R2 与 CDN，由内部发布游戏；搜索、社区互动、云存档和第三方上传不在本轮范围。完成任务后更新本文现状并勾选 TODO。
+邮箱账号、成就与隐私政策/使用条款已于 2026-09-30 上线（TODO 第 7 项完成）。发布脚本与回滚已实现并通过本地验收（TODO 第 8 项），首次生产发布待执行。全时战绩（`game-stats.md`）与「乱刃」v4 已完成本地验收；上线顺序为 `supabase db push --linked`、部署主站、`pnpm game publish slash v4`。后续完成 SEO 和多游戏验收，按 TODO 推进。MVP 固定采用 Vercel、Supabase、R2 与 CDN，由内部发布游戏；搜索、社区互动、云存档和第三方上传不在本轮范围。完成任务后更新本文现状并勾选 TODO。

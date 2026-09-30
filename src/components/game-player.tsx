@@ -122,6 +122,19 @@ export function GamePlayer({
               }),
             }).catch(() => undefined);
           },
+          report(stats) {
+            if (!loggedInRef.current) return;
+            void fetch("/api/stats", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              credentials: "same-origin",
+              body: JSON.stringify({
+                game_id: gameId,
+                game_version_id: gameVersionId,
+                stats,
+              }),
+            }).catch(() => undefined);
+          },
           now: Date.now,
           randomUUID: () => window.crypto.randomUUID(),
           isVisible: () => document.visibilityState === "visible",

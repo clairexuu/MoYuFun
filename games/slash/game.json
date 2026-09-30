@@ -26,5 +26,10 @@
     { "key": "rampage", "name": "连斩", "description": "中途不死连续击杀 5 次。", "symbol": "连" },
     { "key": "swift", "name": "速战", "description": "在 120 秒内获胜。", "symbol": "速" },
     { "key": "ranged", "name": "远斩", "description": "以剑气加穿刺获胜。", "symbol": "远" }
+  ],
+  "stats": [
+    { "key": "rounds", "name": "对局", "maxPerRound": 1 },
+    { "key": "wins", "name": "胜利", "maxPerRound": 1 },
+    { "key": "kills", "name": "击杀", "maxPerRound": 10 }
   ]
 }

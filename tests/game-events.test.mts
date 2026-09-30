@@ -58,6 +58,7 @@ test("gives every iframe attempt its own load and records ready once", () => {
     context: CONTEXT,
     track: (event) => events.push(event),
     unlock: () => {},
+    report: () => {},
     now: () => now,
     randomUUID: () => ids[nextId++],
     isVisible: () => true,
@@ -100,6 +101,7 @@ test("keeps one play active and heartbeats only while visible", () => {
     context: CONTEXT,
     track: (event) => events.push(event),
     unlock: () => {},
+    report: () => {},
     now: () => 1_000,
     randomUUID: () => ids[nextId++],
     isVisible: () => visible,
@@ -180,6 +182,7 @@ test("forwards achievements only during a round and once per key", () => {
     context: CONTEXT,
     track: () => {},
     unlock: (key) => unlocked.push(key),
+    report: () => {},
     now: () => 1_000,
     randomUUID: () => `${++nextId}1111111-1111-4111-8111-111111111111`,
     isVisible: () => true,
@@ -201,4 +204,74 @@ test("forwards achievements only during a round and once per key", () => {
   lifecycle.message({ type: "achievement", key: "rampage" });
 
   assert.deepEqual(unlocked, ["first_blood", "first_win", "rampage"]);
+});
+
+test("accepts the exact four-key stats message and rejects bad reports", () => {
+  const frame = {};
+  const read = (data: unknown) =>
+    readGameMessage(
+      { data, origin: "https://games.moyufuns.com", source: frame },
+      "https://games.moyufuns.com",
+      frame,
+    );
+  const base = { source: "moyufun-game", version: 1, type: "stats" };
+
+  assert.deepEqual(read({ ...base, stats: { rounds: 1, kills: 7 } }), {
+    type: "stats",
+    stats: { rounds: 1, kills: 7 },
+  });
+  assert.deepEqual(read({ ...base, stats: { wins: 0 } }), {
+    type: "stats",
+    stats: { wins: 0 },
+  });
+  assert.equal(read(base), undefined);
+  assert.equal(read({ ...base, stats: {} }), undefined);
+  assert.equal(read({ ...base, stats: [] }), undefined);
+  assert.equal(read({ ...base, stats: null }), undefined);
+  assert.equal(read({ ...base, stats: { rounds: 1 }, extra: 1 }), undefined);
+  assert.equal(read({ ...base, stats: { Rounds: 1 } }), undefined);
+  assert.equal(read({ ...base, stats: { ["a".repeat(41)]: 1 } }), undefined);
+  assert.equal(read({ ...base, stats: { rounds: -1 } }), undefined);
+  assert.equal(read({ ...base, stats: { rounds: 1.5 } }), undefined);
+  assert.equal(read({ ...base, stats: { rounds: "1" } }), undefined);
+  assert.equal(read({ ...base, stats: { rounds: 1_000_001 } }), undefined);
+  assert.equal(
+    read({
+      ...base,
+      stats: Object.fromEntries(Array.from({ length: 11 }, (_, i) => [`s${i}`, 1])),
+    }),
+    undefined,
+  );
+});
+
+test("forwards stats only during a round and once per play", () => {
+  const reported: Record<string, number>[] = [];
+  let nextId = 0;
+  const lifecycle = createGameLifecycle({
+    context: CONTEXT,
+    track: () => {},
+    unlock: () => {},
+    report: (stats) => reported.push(stats),
+    now: () => 1_000,
+    randomUUID: () => `${++nextId}1111111-1111-4111-8111-111111111111`,
+    isVisible: () => true,
+    setInterval: () => 1,
+    clearInterval: () => {},
+  });
+
+  lifecycle.load();
+  lifecycle.message({ type: "ready" });
+  lifecycle.message({ type: "stats", stats: { rounds: 1 } });
+  lifecycle.message({ type: "start" });
+  lifecycle.message({ type: "stats", stats: { rounds: 1, kills: 3 } });
+  lifecycle.message({ type: "stats", stats: { rounds: 1, kills: 9 } });
+  lifecycle.message({ type: "end" });
+  lifecycle.message({ type: "stats", stats: { rounds: 1 } });
+  lifecycle.message({ type: "start" });
+  lifecycle.message({ type: "stats", stats: { rounds: 1, kills: 5 } });
+
+  assert.deepEqual(reported, [
+    { rounds: 1, kills: 3 },
+    { rounds: 1, kills: 5 },
+  ]);
 });

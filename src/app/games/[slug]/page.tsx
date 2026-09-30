@@ -130,18 +130,19 @@ export default async function GameDetailPage(
           </article>
         </section>
 
-        {game.achievements.length > 0 ? (
+        {game.achievements.length > 0 || game.stats.length > 0 ? (
           <section className="mt-12 border-t border-white/[0.08] pt-10 sm:pt-12">
             <p className="text-xs font-bold tracking-[0.2em] text-[#7f95ff] uppercase">
-              Achievements
+              Record
             </p>
-            <h2 className="mt-3 text-2xl font-semibold text-white">成就</h2>
+            <h2 className="mt-3 text-2xl font-semibold text-white">战绩与成就</h2>
             <div className="mt-6">
               <GameAchievements
                 accent={game.cover.accent}
                 achievements={game.achievements}
                 gameId={game.id}
                 loginHref={`/login?next=/games/${game.slug}`}
+                stats={game.stats}
               />
             </div>
           </section>

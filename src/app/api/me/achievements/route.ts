@@ -1,4 +1,4 @@
-import { getUserAchievements } from "@/lib/achievements";
+import { getUserAchievements, getUserStats } from "@/lib/achievements";
 import { getCurrentUser } from "@/lib/auth";
 
 const UUID_PATTERN =
@@ -17,9 +17,11 @@ export async function GET(request: Request) {
     return Response.json({ error: "Unauthorized" }, { status: 401, headers });
   }
 
-  const unlocked = (await getUserAchievements(user.id, gameId)).map(
-    ({ key, unlocked_at }) => ({ key, unlocked_at }),
-  );
+  const [unlocks, stats] = await Promise.all([
+    getUserAchievements(user.id, gameId),
+    gameId ? getUserStats(user.id, gameId) : undefined,
+  ]);
+  const unlocked = unlocks.map(({ key, unlocked_at }) => ({ key, unlocked_at }));
 
-  return Response.json({ unlocked }, { headers });
+  return Response.json(stats ? { unlocked, stats } : { unlocked }, { headers });
 }
