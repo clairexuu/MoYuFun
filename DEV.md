@@ -74,7 +74,7 @@
 
 | 服务 | 当前用途与入口 |
 | --- | --- |
-| Vercel | Next.js 主站：[www.moyufuns.com](https://www.moyufuns.com) · [控制台](https://vercel.com/dashboard) |
+| Vercel | Next.js 主站：[www.moyufuns.com](https://www.moyufuns.com) · [控制台](https://vercel.com/dashboard)；函数由 `vercel.json` 固定在 `pdx1`，与 Supabase `us-west-2` 同区 |
 | Cloudflare R2 + CDN | 游戏存储与分发：[乱刃 v2](https://games.moyufuns.com/games/slash/v2/index.html) · [控制台](https://dash.cloudflare.com/) |
 | Supabase | 托管 PostgreSQL 与 Auth，保存游戏、版本、统计事件、账号和成就；迁移、权限与 Auth 配置见 `supabase/README.md` |
 | Resend | 验证与找回密码邮件的 SMTP，发件人 `noreply@moyufuns.com`，域名 DNS 记录在 Cloudflare |
