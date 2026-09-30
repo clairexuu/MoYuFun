@@ -211,6 +211,7 @@ Done when: deletion is verified on a local database (auth user and unlocks gone,
 
 **M5 · 乱刃 v3.**
 Game changes, headless test, publish migration, R2 upload, production Supabase Auth config and Resend DNS, Vercel env vars, deploy, revalidate.
+Status: code side done (game and headless test in M3; `supabase/migrations/20260930130000_publish_slash_v3.sql` applied and verified locally). The owner-only steps are scripted in `scripts/m5-production-wizard.sh` (Resend + DNS, Supabase Dashboard auth/SMTP/templates, Vercel env vars, R2 upload with CDN check, `db push`, deploy, revalidate, acceptance).
 Done when: in production a new account can verify its email, reset its password, earn all six achievements, and see them on `/me` and the detail page; v2 remains in R2 for rollback.
 
 **M6 · Docs.**
