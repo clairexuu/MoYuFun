@@ -1,6 +1,9 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 
+import { createServerClient } from "@supabase/ssr";
 import { type NextRequest, NextResponse } from "next/server.js";
+
+import { hardenCookie } from "./lib/auth-request.ts";
 
 const USERNAME = "moyufun";
 const CHALLENGE = 'Basic realm="MoYuFun Stats", charset="UTF-8"';
@@ -36,7 +39,7 @@ function readCredentials(header: string | null): {
   };
 }
 
-export function proxy(request: NextRequest): NextResponse {
+function statsAuth(request: NextRequest): NextResponse {
   const password = process.env.MOYUFUN_STATS_PASSWORD;
 
   if (!password || password.length < 32) {
@@ -65,6 +68,53 @@ export function proxy(request: NextRequest): NextResponse {
   return response;
 }
 
+// Refreshes the Supabase session cookie so server pages read a valid JWT.
+async function refreshSession(request: NextRequest): Promise<NextResponse> {
+  let response = NextResponse.next({ request });
+  const url = process.env.SUPABASE_URL?.trim();
+  const key = process.env.SUPABASE_PUBLISHABLE_KEY?.trim();
+
+  if (url && key) {
+    const supabase = createServerClient(url, key, {
+      cookies: {
+        getAll: () => request.cookies.getAll(),
+        setAll(cookiesToSet, headers) {
+          for (const { name, value } of cookiesToSet) {
+            request.cookies.set(name, value);
+          }
+          response = NextResponse.next({ request });
+          for (const { name, value, options } of cookiesToSet) {
+            response.cookies.set(name, value, hardenCookie(options));
+          }
+          for (const [name, value] of Object.entries(headers)) {
+            response.headers.set(name, value);
+          }
+        },
+      },
+    });
+    await supabase.auth.getClaims();
+  }
+
+  response.headers.set("Cache-Control", "private, no-store");
+  return response;
+}
+
+export async function proxy(request: NextRequest): Promise<NextResponse> {
+  if (request.nextUrl.pathname.startsWith("/stats")) {
+    return statsAuth(request);
+  }
+
+  return refreshSession(request);
+}
+
 export const config = {
-  matcher: "/stats/:path*",
+  matcher: [
+    "/stats/:path*",
+    "/me",
+    "/login",
+    "/signup",
+    "/forgot-password",
+    "/reset-password",
+    "/auth/:path*",
+  ],
 };

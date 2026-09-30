@@ -21,3 +21,7 @@ Use the default triage labels. See `docs/agents/triage-labels.md`.
 ### Domain docs
 
 Use a single-context layout. See `docs/agents/domain.md`.
+
+### Design docs
+
+Feature designs and their dev docs live in `docs/design/`. Use the `design-doc` skill when planning, implementing or finishing one.

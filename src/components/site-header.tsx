@@ -1,5 +1,7 @@
 import Link from "next/link";
 
+import { AccountMenu } from "@/components/account-menu";
+
 export function SiteHeader() {
   return (
     <header className="border-b border-white/[0.07] bg-[#080b12]/90 backdrop-blur-xl">
@@ -15,9 +17,12 @@ export function SiteHeader() {
             MoYuFun
           </span>
         </Link>
-        <span className="hidden text-sm text-[#7f8aa3] sm:block">
-          无需下载 · 打开即玩
-        </span>
+        <div className="flex items-center gap-4">
+          <span className="hidden text-sm text-[#7f8aa3] sm:block">
+            无需下载 · 打开即玩
+          </span>
+          <AccountMenu />
+        </div>
       </div>
     </header>
   );
