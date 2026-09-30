@@ -8,8 +8,10 @@ import {
   createGameLifecycle,
   readGameMessage,
 } from "@/lib/game-events";
+import type { GameAchievement } from "@/lib/games";
 
 type GamePlayerProps = {
+  achievements: readonly GameAchievement[];
   detailHref: string;
   gameId: string;
   gameVersionId: string;
@@ -18,7 +20,10 @@ type GamePlayerProps = {
   title: string;
 };
 
+const POPUP_MS = 4_000;
+
 export function GamePlayer({
+  achievements,
   detailHref,
   gameId,
   gameVersionId,
@@ -28,6 +33,10 @@ export function GamePlayer({
 }: GamePlayerProps) {
   const playerRef = useRef<HTMLElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const loggedInRef = useRef(false);
+  const [loggedIn, setLoggedIn] = useState(false);
+  const [popups, setPopups] = useState<GameAchievement[]>([]);
+  const popup = popups[0];
   const lifecycleRef = useRef<{
     attempt: number;
     lifecycle: ReturnType<typeof createGameLifecycle>;
@@ -67,6 +76,24 @@ export function GamePlayer({
     };
   }, [attempt, ready, src]);
 
+  useEffect(() => {
+    fetch("/api/me", { credentials: "same-origin" })
+      .then((response) => response.json())
+      .then((body: { user: unknown }) => {
+        loggedInRef.current = body.user !== null;
+        setLoggedIn(loggedInRef.current);
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!popup) return;
+    const timer = window.setTimeout(() => {
+      setPopups((queue) => queue.slice(1));
+    }, POPUP_MS);
+    return () => window.clearTimeout(timer);
+  }, [popup]);
+
   useLayoutEffect(() => {
     let state = lifecycleRef.current;
     if (!state || state.attempt !== attempt) {
@@ -79,6 +106,22 @@ export function GamePlayer({
             path,
           },
           track: trackBrowserEvent,
+          unlock(key) {
+            const achievement = achievements.find((entry) => entry.key === key);
+            if (!achievement) return;
+            setPopups((queue) => [...queue, achievement]);
+            if (!loggedInRef.current) return;
+            void fetch("/api/achievements", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              credentials: "same-origin",
+              body: JSON.stringify({
+                game_id: gameId,
+                game_version_id: gameVersionId,
+                key,
+              }),
+            }).catch(() => undefined);
+          },
           now: Date.now,
           randomUUID: () => window.crypto.randomUUID(),
           isVisible: () => document.visibilityState === "visible",
@@ -96,10 +139,10 @@ export function GamePlayer({
     function receiveGameMessage(event: MessageEvent) {
       const frameWindow = iframeRef.current?.contentWindow;
       if (!frameWindow) return;
-      const type = readGameMessage(event, gameOrigin, frameWindow);
-      if (!type) return;
-      lifecycle.message(type);
-      if (type === "ready") setReady(true);
+      const message = readGameMessage(event, gameOrigin, frameWindow);
+      if (!message) return;
+      lifecycle.message(message);
+      if (message.type === "ready") setReady(true);
     }
 
     window.addEventListener("message", receiveGameMessage);
@@ -107,7 +150,7 @@ export function GamePlayer({
       window.removeEventListener("message", receiveGameMessage);
       lifecycle.dispose();
     };
-  }, [attempt, gameId, gameVersionId, path, src]);
+  }, [achievements, attempt, gameId, gameVersionId, path, src]);
 
   useEffect(() => {
     function syncFullscreenState() {
@@ -184,6 +227,31 @@ export function GamePlayer({
           src={src}
           title={`${title} 游戏画面`}
         />
+
+        {popup ? (
+          <div
+            aria-live="polite"
+            className="absolute top-3 right-3 z-10 flex max-w-xs items-center gap-3 rounded-xl border border-white/15 bg-[#111722]/95 px-4 py-3 shadow-[0_12px_40px_rgba(0,0,0,0.45)] backdrop-blur"
+            key={`${popup.key}:${popups.length}`}
+          >
+            <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-[#7189ff]/20 text-lg font-black text-white">
+              {popup.symbol}
+            </span>
+            <span className="min-w-0">
+              <span className="block text-xs text-[#8fa4ff]">成就解锁</span>
+              <span className="block truncate text-sm font-bold text-white">{popup.name}</span>
+              <span className="block truncate text-xs text-[#98a2b8]">{popup.description}</span>
+              {!loggedIn ? (
+                <Link
+                  className="mt-1 block text-xs text-[#9ee6b8] hover:text-white"
+                  href={`/login?next=${encodeURIComponent(path)}`}
+                >
+                  登录后可保存成就
+                </Link>
+              ) : null}
+            </span>
+          </div>
+        ) : null}
 
         {!ready ? (
           <div

@@ -37,6 +37,7 @@ export default async function PlayGamePage(props: PageProps<"/play/[slug]">) {
   return (
     <main className="flex min-h-dvh items-start justify-center px-0 py-0 sm:items-center sm:px-5 sm:py-6">
       <GamePlayer
+        achievements={game.achievements}
         detailHref={`/games/${game.slug}`}
         gameId={game.id}
         gameVersionId={game.versionId}

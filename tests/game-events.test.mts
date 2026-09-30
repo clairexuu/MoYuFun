@@ -20,9 +20,9 @@ test("accepts only the exact v1 game message from the configured iframe", () => 
     source: frame,
   };
 
-  assert.equal(
+  assert.deepEqual(
     readGameMessage(valid, "https://games.moyufuns.com", frame),
-    "ready",
+    { type: "ready" },
   );
   assert.equal(
     readGameMessage(
@@ -57,6 +57,7 @@ test("gives every iframe attempt its own load and records ready once", () => {
   const lifecycle = createGameLifecycle({
     context: CONTEXT,
     track: (event) => events.push(event),
+    unlock: () => {},
     now: () => now,
     randomUUID: () => ids[nextId++],
     isVisible: () => true,
@@ -66,8 +67,8 @@ test("gives every iframe attempt its own load and records ready once", () => {
 
   lifecycle.load();
   now = 2_251;
-  lifecycle.message("ready");
-  lifecycle.message("ready");
+  lifecycle.message({ type: "ready" });
+  lifecycle.message({ type: "ready" });
   lifecycle.load();
 
   assert.deepEqual(
@@ -98,6 +99,7 @@ test("keeps one play active and heartbeats only while visible", () => {
   const lifecycle = createGameLifecycle({
     context: CONTEXT,
     track: (event) => events.push(event),
+    unlock: () => {},
     now: () => 1_000,
     randomUUID: () => ids[nextId++],
     isVisible: () => visible,
@@ -111,17 +113,17 @@ test("keeps one play active and heartbeats only while visible", () => {
     },
   });
 
-  lifecycle.message("start");
+  lifecycle.message({ type: "start" });
   lifecycle.load();
-  lifecycle.message("ready");
-  lifecycle.message("start");
-  lifecycle.message("start");
+  lifecycle.message({ type: "ready" });
+  lifecycle.message({ type: "start" });
+  lifecycle.message({ type: "start" });
   tick();
   visible = false;
   tick();
-  lifecycle.message("end");
+  lifecycle.message({ type: "end" });
   tick();
-  lifecycle.message("start");
+  lifecycle.message({ type: "start" });
 
   assert.deepEqual(
     events.map(({ event_type, play_id, active_seconds }) => ({
@@ -139,4 +141,64 @@ test("keeps one play active and heartbeats only while visible", () => {
     ],
   );
   assert.equal(cleared, 1);
+});
+
+test("accepts the exact four-key achievement message and rejects bad keys", () => {
+  const frame = {};
+  const read = (data: unknown) =>
+    readGameMessage(
+      { data, origin: "https://games.moyufuns.com", source: frame },
+      "https://games.moyufuns.com",
+      frame,
+    );
+  const base = { source: "moyufun-game", version: 1, type: "achievement" };
+
+  assert.deepEqual(read({ ...base, key: "first_win" }), {
+    type: "achievement",
+    key: "first_win",
+  });
+  assert.equal(read({ ...base, key: "First_Win" }), undefined);
+  assert.equal(read({ ...base, key: "first-win" }), undefined);
+  assert.equal(read({ ...base, key: "_first" }), undefined);
+  assert.equal(read({ ...base, key: "a".repeat(41) }), undefined);
+  assert.equal(read({ ...base, key: 1 }), undefined);
+  assert.equal(read(base), undefined);
+  assert.equal(read({ ...base, key: "first_win", extra: 1 }), undefined);
+  assert.equal(
+    read({ source: "moyufun-game", version: 1, type: "ready", key: "x" }),
+    undefined,
+  );
+  assert.deepEqual(read({ source: "moyufun-game", version: 1, type: "end" }), {
+    type: "end",
+  });
+});
+
+test("forwards achievements only during a round and once per key", () => {
+  const unlocked: string[] = [];
+  let nextId = 0;
+  const lifecycle = createGameLifecycle({
+    context: CONTEXT,
+    track: () => {},
+    unlock: (key) => unlocked.push(key),
+    now: () => 1_000,
+    randomUUID: () => `${++nextId}1111111-1111-4111-8111-111111111111`,
+    isVisible: () => true,
+    setInterval: () => 1,
+    clearInterval: () => {},
+  });
+
+  lifecycle.load();
+  lifecycle.message({ type: "ready" });
+  lifecycle.message({ type: "achievement", key: "before_start" });
+  lifecycle.message({ type: "start" });
+  lifecycle.message({ type: "achievement", key: "first_blood" });
+  lifecycle.message({ type: "achievement", key: "first_blood" });
+  lifecycle.message({ type: "achievement", key: "first_win" });
+  lifecycle.message({ type: "end" });
+  lifecycle.message({ type: "achievement", key: "after_end" });
+  lifecycle.message({ type: "start" });
+  lifecycle.message({ type: "achievement", key: "first_blood" });
+  lifecycle.message({ type: "achievement", key: "rampage" });
+
+  assert.deepEqual(unlocked, ["first_blood", "first_win", "rampage"]);
 });

@@ -1,6 +1,10 @@
 import type { BrowserEvent } from "./browser-events.ts";
 
-export type GameMessageType = "ready" | "start" | "end";
+export const ACHIEVEMENT_KEY_PATTERN = /^[a-z0-9]+(?:_[a-z0-9]+)*$/;
+
+export type GameMessage =
+  | { type: "ready" | "start" | "end" }
+  | { type: "achievement"; key: string };
 
 type MessageLike = {
   data: unknown;
@@ -8,40 +12,55 @@ type MessageLike = {
   source: unknown;
 };
 
-function isGameMessage(value: unknown): value is {
-  source: "moyufun-game";
-  version: 1;
-  type: GameMessageType;
-} {
+export function isAchievementKey(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length <= 40 &&
+    ACHIEVEMENT_KEY_PATTERN.test(value)
+  );
+}
+
+function parseGameMessage(value: unknown): GameMessage | undefined {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return false;
+    return undefined;
   }
 
   const message = value as Record<string, unknown>;
-  return (
-    Object.keys(message).length === 3 &&
-    message.source === "moyufun-game" &&
-    message.version === 1 &&
+  if (message.source !== "moyufun-game" || message.version !== 1) {
+    return undefined;
+  }
+
+  const keys = Object.keys(message).length;
+  if (
+    keys === 3 &&
     (message.type === "ready" ||
       message.type === "start" ||
       message.type === "end")
-  );
+  ) {
+    return { type: message.type };
+  }
+
+  if (
+    keys === 4 &&
+    message.type === "achievement" &&
+    isAchievementKey(message.key)
+  ) {
+    return { type: "achievement", key: message.key };
+  }
+
+  return undefined;
 }
 
 export function readGameMessage(
   event: MessageLike,
   expectedOrigin: string,
   expectedSource: unknown,
-): GameMessageType | undefined {
-  if (
-    event.origin !== expectedOrigin ||
-    event.source !== expectedSource ||
-    !isGameMessage(event.data)
-  ) {
+): GameMessage | undefined {
+  if (event.origin !== expectedOrigin || event.source !== expectedSource) {
     return undefined;
   }
 
-  return event.data.type;
+  return parseGameMessage(event.data);
 }
 
 export type GameEventContext = {
@@ -53,6 +72,7 @@ export type GameEventContext = {
 export type GameLifecycleOptions = {
   context: GameEventContext;
   track: (event: BrowserEvent) => unknown;
+  unlock: (key: string) => unknown;
   now: () => number;
   randomUUID: () => string;
   isVisible: () => boolean;
@@ -66,6 +86,7 @@ export function createGameLifecycle(options: GameLifecycleOptions) {
   let ready = false;
   let playId: string | undefined;
   let heartbeatTimer: unknown;
+  const unlocked = new Set<string>();
 
   function stopHeartbeat() {
     if (heartbeatTimer === undefined) return;
@@ -116,12 +137,19 @@ export function createGameLifecycle(options: GameLifecycleOptions) {
         load_id: loadId,
       });
     },
-    message(type: GameMessageType) {
-      if (type === "start") {
+    message(message: GameMessage) {
+      if (message.type === "achievement") {
+        // Only during a round, once per key for this lifecycle.
+        if (!playId || unlocked.has(message.key)) return;
+        unlocked.add(message.key);
+        options.unlock(message.key);
+        return;
+      }
+      if (message.type === "start") {
         startPlay();
         return;
       }
-      if (type === "end") {
+      if (message.type === "end") {
         endPlay();
         return;
       }

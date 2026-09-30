@@ -1,6 +1,6 @@
 # Accounts and achievements
 
-**Status:** Design — settled, not yet implemented. Milestones: M1 ☑ · M2 ☑ · M3 ☐ · M4 ☐ · M5 ☐ · M6 ☐
+**Status:** Design — settled, not yet implemented. Milestones: M1 ☑ · M2 ☑ · M3 ☑ · M4 ☐ · M5 ☐ · M6 ☐
 
 Players create an account with email and password, and games report achievements that are saved to that account. Achievements are private to each user; there is no ranking or public profile.
 
@@ -140,7 +140,7 @@ The game message gains one type:
 ```
 
 - `readGameMessage` (`src/lib/game-events.ts`) accepts exactly these four keys for `achievement`, with `key` matching the DB key regex. It returns a discriminated value: `{ type: "ready" | "start" | "end" }` or `{ type: "achievement", key }`. The three existing messages keep their exact three-key shape.
-- The lifecycle forwards an achievement only while a round is in progress (`play_id` set) and at most once per key per page load.
+- The lifecycle forwards an achievement only while a round is in progress (`play_id` set) and at most once per key per lifecycle instance (one per iframe load; a manual "重新加载" starts a new one, and the API answers `already_unlocked`). Unknown keys (not in the catalog definitions) are dropped by the player without a request.
 - **Ordering rule for games:** send any achievements earned at round end **before** `end`, because the site ignores achievements once the round has ended.
 - SDK helper added to games: `emitMoYuFunAchievement(key)`, next to `emitMoYuFunEvent`, with the same fixed parent origin.
 
@@ -152,7 +152,7 @@ The game message gains one type:
 | `GET /api/me/achievements?game_id=<uuid>` | `401` when logged out; `200 { unlocked: [{ key, unlocked_at }] }`. `game_id` optional. |
 | `POST /api/achievements` | JSON body exactly `{ game_id, game_version_id, key }`, ≤ 1 KiB, `Content-Type: application/json`, `Origin` must equal `SITE_URL`'s origin. `400` bad body or unknown key, `401` logged out, `403` bad origin, `429` rate-limited, `200 { status: "unlocked" \| "already_unlocked" }`. Database errors → generic `500`. |
 
-Structure it like the events endpoint: a pure request module `src/lib/achievement-request.ts` (parsing, status mapping; dependencies injected, unit-testable) and a server-only `src/lib/achievements.ts` (rate limit + DB calls). The rate limit reuses `consume_event_rate_limit` with `HMAC-SHA256(MOYUFUN_WEB_DATABASE_URL, "achievement-rate-limit:" + user_id)`, i.e. 120 per minute per user.
+Structure it like the events endpoint: a pure request module `src/lib/achievement-request.ts` (parsing, status mapping; dependencies injected, unit-testable) and a server-only `src/lib/achievements.ts` (rate limit + DB calls). The rate limit reuses `consume_event_rate_limit` through the shared `consumeRateLimit(bucket)` in `events.ts` with bucket `"achievement-rate-limit:" + user_id`, i.e. 120 per minute per user. A wrong `Content-Type` is a `400`.
 
 ### UI
 
@@ -202,7 +202,7 @@ Migration, functions, grants and assertions; `supabase/tests/achievements.sql`; 
 Done when: the SQL test passes on a migrated local database, `db lint` is clean, and the catalog returns `achievements: []` for 乱刃.
 
 **M3 · Unlock path.**
-Protocol change in `game-events.ts`; `achievement-request.ts`, `achievements.ts`, `POST /api/achievements`; player forwarding, dedupe and popup.
+Protocol change in `game-events.ts`; `achievement-request.ts`, `achievements.ts`, `POST /api/achievements`; player forwarding, dedupe and popup. Also done here: the `games/slash/v3/` game changes and headless test from M5, so the protocol had a real producer. End-to-end was verified with a throwaway local fixture game (not committed): a static game that posts `ready` immediately races hydration on the static play page, so the fixture delayed `ready` by 1.5 s.
 Done when: unit tests cover message validation (four-key shape, bad keys, old messages unchanged), in-round-only forwarding, per-page dedupe, and every API status code; a local fixture game or v3 draft unlocks an achievement end-to-end.
 
 **M4 · Surfaces.**
