@@ -35,6 +35,7 @@
 | `supabase/migrations/` | Supabase 数据库结构、成就表与函数、「乱刃」版本发布迁移 |
 | `supabase/templates/`、`supabase/config.toml` | 验证与重置邮件模板及本地 Auth 配置（生产在 Dashboard 中镜像） |
 | `scripts/m5-production-wizard.sh` | 账号与成就上线的手工步骤向导（Resend、Supabase Dashboard、Vercel、R2、迁移、部署） |
+| `scripts/game-release.mts`、`game-package.mts`、`games/<slug>/game.json` | `pnpm game check/publish/switch`：包检查、上传 R2、登记版本并同步目录与成就、回滚；说明见 [docs/design/game-release.md](docs/design/game-release.md) |
 | `supabase/README.md` | 数据库部署、服务端角色和权限验收说明 |
 | `next.config.ts` | 游玩页 CSP 响应头，允许指定游戏来源 |
 
@@ -94,7 +95,7 @@
 | `games/slash/v2/index.html` | `/games/slash/v2/index.html` / `games/slash/v2/index.html` |
 | `games/slash/v3/index.html` | `/games/slash/v3/index.html` / `games/slash/v3/index.html` |
 
-新增游戏时，在 `games/<slug>/<version>/` 放入文件，并通过发布角色登记游戏及版本。本地静态服务器用 `games/serve.json` 将数据库 URL 路径映射到该目录。先验证本地链路，再将运行文件按同一路径上传 R2；确认可访问后，在事务中上架或切换当前版本，随后调用受保护的目录缓存失效接口。新版本使用新目录，回滚时切回已保留的旧版本并再次失效缓存。单包上限 30 MB，凭据保存在服务端或发布环境；自动包检查与发布脚本见 TODO。
+新增游戏或版本时，在 `games/<slug>/<version>/` 放入文件并更新 `games/<slug>/game.json`，然后用 `pnpm game check`、`pnpm game:local publish` 和 `pnpm game publish` 检查、本地验证并发布，用 `pnpm game switch` 回滚。包契约、命令步骤、发布环境变量和本地发布角色见 [docs/design/game-release.md](docs/design/game-release.md)。本地静态服务器用 `games/serve.json` 将 `/games/<slug>/<version>/*` 映射到该目录。
 
 检查命令统一见 README。目录与事件采集已通过 Node 24 测试、lint、生产构建、游戏无头测试和线上验收；线上覆盖首页、详情、Slash v2 游玩与七类事件的 204 响应及幂等重放。
 
@@ -104,4 +105,4 @@ Supabase 表、RLS、最小权限角色和「乱刃」v2 已部署。主站目�
 
 测试周期和指标口径见 [METRICS.md](METRICS.md)。`/api/events`、浏览器身份与会话、页面事件和游戏 SDK 已完成；受汇总状态保护的原始事件删除、限流桶清理、五项指标查询、长期日汇总和 D-2 最终化均已部署到 Supabase，并通过远程 lint、迁移版本、回滚事务及首次维护验收。内部 `/stats` 已部署到 Vercel 并配置 `MOYUFUN_STATS_PASSWORD`，线上鉴权与看板数据均已验收；P0 数据与统计里程碑全部完成。7 日回访推迟到后续增强，不在看板保留占位。
 
-邮箱账号、成就与隐私政策/使用条款已于 2026-09-30 上线（TODO 第 7 项完成）。后续完成发布自动化、SEO 和多游戏验收，按 TODO 推进。MVP 固定采用 Vercel、Supabase、R2 与 CDN，由内部发布游戏；搜索、社区互动、云存档和第三方上传不在本轮范围。完成任务后更新本文现状并勾选 TODO。
+邮箱账号、成就与隐私政策/使用条款已于 2026-09-30 上线（TODO 第 7 项完成）。发布脚本与回滚已实现并通过本地验收（TODO 第 8 项），首次生产发布待执行。后续完成 SEO 和多游戏验收，按 TODO 推进。MVP 固定采用 Vercel、Supabase、R2 与 CDN，由内部发布游戏；搜索、社区互动、云存档和第三方上传不在本轮范围。完成任务后更新本文现状并勾选 TODO。

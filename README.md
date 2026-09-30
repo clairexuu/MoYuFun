@@ -48,7 +48,7 @@ Supabase 数据库迁移、权限和服务端环境变量见 [supabase/README.md
 pnpm test
 pnpm lint
 pnpm build --webpack
-node games/slash/v3/test_headless.js
+pnpm game check slash v3
 ```
 
 数据库函数与权限（需 `pnpm supabase start` 且迁移已应用）：

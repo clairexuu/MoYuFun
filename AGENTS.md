@@ -25,3 +25,7 @@ Use a single-context layout. See `docs/agents/domain.md`.
 ### Design docs
 
 Feature designs and their dev docs live in `docs/design/`. Use the `design-doc` skill when planning, implementing or finishing one.
+
+### Games
+
+New games and versions follow the package contract in `docs/design/game-release.md` (`games/<slug>/game.json` plus `games/<slug>/<version>/`), checked with `pnpm game check <slug> <version>`.

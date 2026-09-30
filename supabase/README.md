@@ -15,7 +15,7 @@
 - `schedule_event_retention_maintenance`：启用 `pg_cron`，创建日汇总完成状态、受状态保护的原始事件删除与过期限流桶清理函数，并注册每日任务。
 - `add_daily_game_metrics`：创建五项长期日汇总、D-2 最终化与只读查询函数，并将现有每日任务改为先汇总再安全清理。
 - `add_achievements`：创建 `achievements`、`user_achievements`（RLS，仅函数可达）及 `unlock_achievement`、`get_user_achievements`、`delete_user_account` 安全定义函数，并断言权限。
-- `publish_slash_v3`：登记「乱刃」v3、写入六项成就并切换当前版本。
+- `publish_slash_v3`：登记「乱刃」v3、写入六项成就并切换当前版本。此后发布不再写迁移，由 `pnpm game publish` 同步 `games/<slug>/game.json`。
 
 远程部署前先预演：
 
@@ -32,12 +32,13 @@ pnpm supabase db lint --linked --level warning
 迁移创建两个默认不可登录的角色：
 
 - `moyufun_web`：读取已上架游戏、当前版本及其启用成就，只执行事件记录、限流、日汇总只读和成就三个函数；不给原始事件、汇总表或 `user_achievements` 直接读写权限。
-- `moyufun_publisher`：读取、新建和更新游戏目录与成就定义，读取和新建不可变版本；不给事件权限和删除权限。成就用 `is_active = false` 下线，不删除。
+- `moyufun_publisher`：读取、新建和更新游戏目录与成就定义，读取和新建不可变版本；不给事件权限和删除权限。成就用 `is_active = false` 下线，不删除。由 `pnpm game publish/switch` 使用（`scripts/game-release.mts`），见 `docs/design/game-release.md`。
 
 为远程角色设置不同的随机密码后：
 
 - Vercel 服务端使用 `MOYUFUN_WEB_DATABASE_URL` 和 Transaction Pooler。
-- 发布环境使用 `MOYUFUN_PUBLISH_DATABASE_URL` 和 Session Pooler。
+- 发布环境使用 `MOYUFUN_PUBLISH_DATABASE_URL` 和 Session Pooler（`.env.publish`）。
+- 本地发布使用 `.env.publish.local`，登录角色创建一次：`create role "moyufun_publisher.local" login password '<pw>' in role moyufun_publisher;`
 - 两个变量都属于服务端机密，不得使用 `NEXT_PUBLIC_` 前缀或提交真实值。
 
 共享 Pooler 的自定义用户名格式为 `<role>.<project-ref>`。主机名必须从 Supabase Dashboard 的 Connect 面板复制，不要根据区域手写。
