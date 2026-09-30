@@ -1,6 +1,6 @@
 # MoYuFun 开发说明
 
-面向接手开发者的代码与部署索引。当前已上线「乱刃」v2，游戏目录、七类事件采集和内部 `/stats` 看板均通过生产验收。后续顺序见 [TODO.md](TODO.md)，启动命令见 [README.md](README.md)。
+面向接手开发者的代码与部署索引。当前已上线「乱刃」v3，游戏目录、七类事件采集、内部 `/stats` 看板、邮箱账号与成就均通过生产验收。账号与成就的完整说明见 [docs/design/accounts-achievements.md](docs/design/accounts-achievements.md)。后续顺序见 [TODO.md](TODO.md)，启动命令见 [README.md](README.md)。
 
 ## 1. 代码结构与功能入口
 
@@ -17,16 +17,24 @@
 | `src/lib/event-request.ts`、`events.ts` | 统计请求大小与逐事件校验，以及 server-only 限流和幂等写入 |
 | `src/lib/daily-metrics.ts` | `/stats` 唯一日汇总读取接口，校验筛选条件并映射最小只读结果 |
 | `src/lib/browser-events.ts` | 浏览器匿名访客、30 分钟会话和 `/api/events` 上报 |
-| `src/lib/game-events.ts` | iframe 消息校验及加载、游玩、心跳生命周期 |
+| `src/lib/game-events.ts` | iframe 消息校验（`ready`/`start`/`end`/`achievement`）及加载、游玩、心跳与成就转发生命周期 |
+| `src/lib/auth.ts`、`auth-request.ts`、`auth-actions.ts` | server-only Supabase Auth 客户端与当前用户读取；`next` 参数与 Cookie 加固的纯函数；注册、登录、找回、重置、退出、删除账号的 Server Actions |
+| `src/lib/achievement-request.ts`、`achievements.ts` | 成就解锁请求校验与状态映射（可单测），以及 server-only 限流与数据库调用 |
 | `src/app/api/events/route.ts` | 单事件统计入口，将合法事件交给服务端写入模块 |
 | `src/app/api/revalidate/games/route.ts` | 受 Bearer secret 保护的游戏目录缓存失效入口 |
-| `src/app/stats/page.tsx`、`src/proxy.ts` | 服务端渲染内部指标看板，以及仅覆盖 `/stats/:path*` 的 HTTP Basic Auth |
-| `src/components/game-player.tsx` | 客户端播放器：可信 iframe 适配、加载与游玩事件、重试、全屏和移动端提示 |
+| `src/app/api/me/route.ts`、`api/me/achievements/route.ts`、`api/achievements/route.ts` | 当前用户、用户成就查询、成就解锁上报 |
+| `src/app/{signup,login,forgot-password,reset-password,me}/page.tsx`、`src/app/auth/confirm/route.ts` | 账号页面与邮件链接确认入口 |
+| `src/app/privacy/page.tsx`、`terms/page.tsx` | 隐私政策与使用条款 |
+| `src/app/stats/page.tsx`、`src/proxy.ts` | 服务端渲染内部指标看板；proxy 对 `/stats/:path*` 做 HTTP Basic Auth，并为账号路由刷新 Supabase 会话 Cookie |
+| `src/components/game-player.tsx` | 客户端播放器：可信 iframe 适配、加载与游玩事件、重试、全屏、移动端提示和成就弹窗/上报 |
+| `src/components/auth-form.tsx`、`auth-shell.tsx`、`account-menu.tsx`、`game-achievements.tsx` | 账号表单与页面外壳、页头账号菜单、详情页成就列表 |
 | `src/components/page-event.tsx` | 首页与详情页的一次性访问事件 |
 | `src/components/game-card.tsx`、`game-cover.tsx` | 卡片与封面；封面由符号和配色绘制 |
 | `src/components/site-header.tsx`、`site-footer.tsx` | 共用页头、页脚 |
-| `games/slash/v1/`、`games/slash/v2/` | 保留的原始版本与接入事件 SDK 的当前版本；各含游戏、玩法 README 和无头测试 |
-| `supabase/migrations/` | Supabase 数据库结构和「乱刃」初始数据迁移 |
+| `games/slash/v1/`、`v2/`、`v3/` | 保留的历史版本与当前版本 v3（接入事件 SDK 与六项单局成就）；各含游戏、玩法 README 和无头测试 |
+| `supabase/migrations/` | Supabase 数据库结构、成就表与函数、「乱刃」版本发布迁移 |
+| `supabase/templates/`、`supabase/config.toml` | 验证与重置邮件模板及本地 Auth 配置（生产在 Dashboard 中镜像） |
+| `scripts/m5-production-wizard.sh` | 账号与成就上线的手工步骤向导（Resend、Supabase Dashboard、Vercel、R2、迁移、部署） |
 | `supabase/README.md` | 数据库部署、服务端角色和权限验收说明 |
 | `next.config.ts` | 游玩页 CSP 响应头，允许指定游戏来源 |
 
@@ -67,9 +75,10 @@
 | --- | --- |
 | Vercel | Next.js 主站：[www.moyufuns.com](https://www.moyufuns.com) · [控制台](https://vercel.com/dashboard) |
 | Cloudflare R2 + CDN | 游戏存储与分发：[乱刃 v2](https://games.moyufuns.com/games/slash/v2/index.html) · [控制台](https://dash.cloudflare.com/) |
-| Supabase | 托管 PostgreSQL，保存游戏、版本和统计事件；迁移与权限说明见 `supabase/README.md` |
+| Supabase | 托管 PostgreSQL 与 Auth，保存游戏、版本、统计事件、账号和成就；迁移、权限与 Auth 配置见 `supabase/README.md` |
+| Resend | 验证与找回密码邮件的 SMTP，发件人 `noreply@moyufuns.com`，域名 DNS 记录在 Cloudflare |
 
-主站生产环境设置 `GAMES_ORIGIN=https://games.moyufuns.com`、Transaction Pooler 的 `MOYUFUN_WEB_DATABASE_URL`、与发布环境约定一致的 `MOYUFUN_REVALIDATE_SECRET`，以及至少 32 个随机字符的 `MOYUFUN_STATS_PASSWORD`。这些变量均为服务端配置，不得使用 `NEXT_PUBLIC_` 前缀。`/stats` 用户名固定为 `moyufun`；缺少或过短密码时返回 503，错误凭据返回带 challenge 的 401，正确凭据才放行。密码不进入 URL、日志或仓库。`GAMES_ORIGIN` 同时决定游戏 URL 和 CSP，变更后重新构建部署。游戏文件独立上传到 R2，部署主站不会自动发布游戏。
+主站生产环境设置 `GAMES_ORIGIN=https://games.moyufuns.com`、Transaction Pooler 的 `MOYUFUN_WEB_DATABASE_URL`、与发布环境约定一致的 `MOYUFUN_REVALIDATE_SECRET`、至少 32 个随机字符的 `MOYUFUN_STATS_PASSWORD`，以及账号所需的 `SUPABASE_URL`、`SUPABASE_PUBLISHABLE_KEY` 和 `SITE_URL`（邮件链接与跳转的站点来源，不读取请求 Host）。Resend 的 API Key 只保存在 Supabase Dashboard 的 SMTP 设置中，Vercel 不持有 Supabase secret key。这些变量均为服务端配置，不得使用 `NEXT_PUBLIC_` 前缀。`/stats` 用户名固定为 `moyufun`；缺少或过短密码时返回 503，错误凭据返回带 challenge 的 401，正确凭据才放行。密码不进入 URL、日志或仓库。`GAMES_ORIGIN` 同时决定游戏 URL 和 CSP，变更后重新构建部署。游戏文件独立上传到 R2，部署主站不会自动发布游戏。
 
 主站 `/play/*` 的 CSP 为 `frame-src 'self' <游戏来源>`。iframe 使用 `sandbox="allow-scripts allow-same-origin allow-pointer-lock"`、`allow="fullscreen; autoplay"` 和 `strict-origin-when-cross-origin` referrer policy。
 
@@ -77,12 +86,13 @@
 
 ## 4. 本地开发、发布与验证
 
-使用 Node.js 24、pnpm 9.15.9；主站和游戏服务分别运行在 3000、4000 端口。`GAMES_ORIGIN` 默认 `http://localhost:4000`，环境示例见 `.env.example`。本地静态服务以外层 `games/` 为根目录并开启 CORS：
+使用 Node.js 24、pnpm 9.15.9；主站和游戏服务分别运行在 3000、4000 端口。`GAMES_ORIGIN` 默认 `http://localhost:4000`，环境示例见 `.env.example`。本地账号流程需要 `pnpm supabase start`（Docker）：Auth 与数据库在本地运行，邮件由 Mailpit（`http://127.0.0.1:54324`）接收；本地数据库登录角色的创建方式见账号文档。本地静态服务以外层 `games/` 为根目录并开启 CORS：
 
 | 本地文件 | URL 路径 / R2 对象键 |
 | --- | --- |
 | `games/slash/v1/index.html` | `/games/slash/v1/index.html` / `games/slash/v1/index.html` |
 | `games/slash/v2/index.html` | `/games/slash/v2/index.html` / `games/slash/v2/index.html` |
+| `games/slash/v3/index.html` | `/games/slash/v3/index.html` / `games/slash/v3/index.html` |
 
 新增游戏时，在 `games/<slug>/<version>/` 放入文件，并通过发布角色登记游戏及版本。本地静态服务器用 `games/serve.json` 将数据库 URL 路径映射到该目录。先验证本地链路，再将运行文件按同一路径上传 R2；确认可访问后，在事务中上架或切换当前版本，随后调用受保护的目录缓存失效接口。新版本使用新目录，回滚时切回已保留的旧版本并再次失效缓存。单包上限 30 MB，凭据保存在服务端或发布环境；自动包检查与发布脚本见 TODO。
 
@@ -94,4 +104,4 @@ Supabase 表、RLS、最小权限角色和「乱刃」v2 已部署。主站目�
 
 测试周期和指标口径见 [METRICS.md](METRICS.md)。`/api/events`、浏览器身份与会话、页面事件和游戏 SDK 已完成；受汇总状态保护的原始事件删除、限流桶清理、五项指标查询、长期日汇总和 D-2 最终化均已部署到 Supabase，并通过远程 lint、迁移版本、回滚事务及首次维护验收。内部 `/stats` 已部署到 Vercel 并配置 `MOYUFUN_STATS_PASSWORD`，线上鉴权与看板数据均已验收；P0 数据与统计里程碑全部完成。7 日回访推迟到后续增强，不在看板保留占位。
 
-后续完成发布自动化、隐私政策与条款、SEO 和多游戏验收，按 TODO 推进。MVP 固定采用 Vercel、Supabase、R2 与 CDN，由内部发布游戏；搜索、社区互动、云存档和第三方上传不在本轮范围。完成任务后更新本文现状并勾选 TODO。
+邮箱账号、成就与隐私政策/使用条款已于 2026-09-30 上线（TODO 第 7 项完成）。后续完成发布自动化、SEO 和多游戏验收，按 TODO 推进。MVP 固定采用 Vercel、Supabase、R2 与 CDN，由内部发布游戏；搜索、社区互动、云存档和第三方上传不在本轮范围。完成任务后更新本文现状并勾选 TODO。

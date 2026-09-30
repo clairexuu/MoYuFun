@@ -34,7 +34,13 @@ pnpm dev:games
 GAMES_ORIGIN=https://games.moyufuns.com
 ```
 
-Supabase 数据库迁移、权限和服务端环境变量见 [supabase/README.md](supabase/README.md)。
+账号流程需要本地 Supabase（Docker）：
+
+```bash
+pnpm supabase start
+```
+
+Supabase 数据库迁移、权限和服务端环境变量见 [supabase/README.md](supabase/README.md)，账号与成就见 [docs/design/accounts-achievements.md](docs/design/accounts-achievements.md)。
 
 ## 检查
 
@@ -42,5 +48,11 @@ Supabase 数据库迁移、权限和服务端环境变量见 [supabase/README.md
 pnpm test
 pnpm lint
 pnpm build --webpack
-node games/slash/v2/test_headless.js
+node games/slash/v3/test_headless.js
+```
+
+数据库函数与权限（需 `pnpm supabase start` 且迁移已应用）：
+
+```bash
+docker exec -i supabase_db_MoYuFun psql -U postgres -v ON_ERROR_STOP=1 < supabase/tests/achievements.sql
 ```

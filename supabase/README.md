@@ -14,6 +14,8 @@
 - `add_event_insert_function`：通过安全定义函数完成事件幂等写入，并撤销主站角色对原始事件表的直接写权限。
 - `schedule_event_retention_maintenance`：启用 `pg_cron`，创建日汇总完成状态、受状态保护的原始事件删除与过期限流桶清理函数，并注册每日任务。
 - `add_daily_game_metrics`：创建五项长期日汇总、D-2 最终化与只读查询函数，并将现有每日任务改为先汇总再安全清理。
+- `add_achievements`：创建 `achievements`、`user_achievements`（RLS，仅函数可达）及 `unlock_achievement`、`get_user_achievements`、`delete_user_account` 安全定义函数，并断言权限。
+- `publish_slash_v3`：登记「乱刃」v3、写入六项成就并切换当前版本。
 
 远程部署前先预演：
 
@@ -29,8 +31,8 @@ pnpm supabase db lint --linked --level warning
 
 迁移创建两个默认不可登录的角色：
 
-- `moyufun_web`：读取已上架游戏及当前版本，只执行事件记录、限流和日汇总只读函数；不给原始事件或汇总表直接读写权限。
-- `moyufun_publisher`：读取、新建和更新游戏目录，读取和新建不可变版本；不给事件权限和删除权限。
+- `moyufun_web`：读取已上架游戏、当前版本及其启用成就，只执行事件记录、限流、日汇总只读和成就三个函数；不给原始事件、汇总表或 `user_achievements` 直接读写权限。
+- `moyufun_publisher`：读取、新建和更新游戏目录与成就定义，读取和新建不可变版本；不给事件权限和删除权限。成就用 `is_active = false` 下线，不删除。
 
 为远程角色设置不同的随机密码后：
 
@@ -76,6 +78,12 @@ limit 10;
 ```
 
 `show cron.timezone` 必须返回 `GMT` 或 `UTC`，任务查询必须只有一行且为启用状态。`supabase/tests/event_retention.sql` 提供带 `rollback` 的 30 天事件边界、未汇总保护、限流桶边界和权限验收；`supabase/tests/daily_game_metrics.sql` 覆盖五项口径、上海日边界、production 过滤、版本筛选、连续 P75、300 秒与跨午夜心跳、幂等、失败/未最终化状态及权限。两者可在迁移后的测试数据库或 SQL Editor 中运行。
+
+## 账号与成就
+
+Supabase Auth 只负责「用户是谁」；主站用 `@supabase/ssr` 在服务端持有会话，所有应用数据仍经 `moyufun_web` 与安全定义函数访问，不给 `authenticated` 角色任何策略。`supabase/config.toml` 的 `[auth*]` 段和 `supabase/templates/` 是配置与邮件模板的真源，生产 Dashboard 需同步：URL Configuration（Site URL 与 `/auth/confirm` 重定向）、Email provider（确认邮箱、安全修改密码、最短 8 位）、Emails → Templates 与 SMTP Settings（Resend）、Rate Limits（每小时 30 封）。
+
+`supabase/tests/achievements.sql` 带 `rollback`，覆盖未知/停用 key、版本与游戏不匹配、重复解锁、按游戏筛选、已下线成就保留、删除账号级联及权限矩阵。完整说明见 `docs/design/accounts-achievements.md`。
 
 ## 目录缓存失效
 
@@ -125,7 +133,14 @@ select
   has_table_privilege('moyufun_publisher', 'public.games', 'update')
     as publisher_can_update_games,
   has_table_privilege('moyufun_publisher', 'public.events', 'select')
-    as publisher_can_read_events;
+    as publisher_can_read_events,
+  has_table_privilege('moyufun_web', 'public.user_achievements', 'select')
+    as web_can_read_unlocks_directly,
+  has_function_privilege(
+    'moyufun_web',
+    'public.unlock_achievement(uuid,uuid,uuid,text)',
+    'execute'
+  ) as web_can_unlock_achievements;
 ```
 
-预期依次为 `false`、`false`、`true`、`false`、`true`、`false`、`false`、`true`、`true`、`false`。`record_event` 的执行权限由对应向前迁移在部署时断言；汇总和清理函数也不得授权给 `anon`、`authenticated`、`moyufun_web` 或 `moyufun_publisher`。
+预期依次为 `false`、`false`、`true`、`false`、`true`、`false`、`false`、`true`、`true`、`false`、`false`、`true`。`record_event` 的执行权限由对应向前迁移在部署时断言；汇总和清理函数也不得授权给 `anon`、`authenticated`、`moyufun_web` 或 `moyufun_publisher`。
