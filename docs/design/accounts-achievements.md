@@ -1,6 +1,6 @@
 # Accounts and achievements
 
-**Status:** Design — settled, not yet implemented. Milestones: M1 ☑ · M2 ☑ · M3 ☑ · M4 ☐ · M5 ☐ · M6 ☐
+**Status:** Design — settled, not yet implemented. Milestones: M1 ☑ · M2 ☑ · M3 ☑ · M4 ☑ · M5 ☐ · M6 ☐
 
 Players create an account with email and password, and games report achievements that are saved to that account. Achievements are private to each user; there is no ranking or public profile.
 
@@ -23,7 +23,7 @@ Read first: `DEV.md` (architecture, roles, deployment), `supabase/README.md` (mi
 | D11 | Analytics stay anonymous. `events` gets no `user_id`, and there is no achievement analytics event in this feature. | Keeps the metrics protocol and privacy scope unchanged. |
 | D12 | Profile is email only: no nickname, avatar or public page. The header shows the email's local part. | Nothing is public without ranking. |
 | D13 | Pre-rendered pages (`/`, `/games/[slug]`, `/play/[slug]`) stay `force-static`. Anything that depends on the user loads in the browser from `/api/me*`. | Reading cookies in those pages would make every request dynamic. |
-| D14 | Account deletion runs through a `security definer` function that deletes the `auth.users` row; unlocks cascade. Vercel never holds the Supabase service-role/secret key. The user must re-enter their password to delete. | Avoids adding the most powerful Supabase secret to the web runtime. Supabase recommends its admin API; verify the SQL path works in M4 before relying on it. |
+| D14 | Account deletion runs through a `security definer` function that deletes the `auth.users` row; unlocks cascade. Vercel never holds the Supabase service-role/secret key. The user must re-enter their password to delete (the action re-runs `signInWithPassword` with the session's email, then calls `delete_user_account`, then `signOut`). | Avoids adding the most powerful Supabase secret to the web runtime. Verified in M2 (SQL test) and M4 (browser): the `postgres` owner can delete from `auth.users`, the unlocks cascade and the session is cleared. |
 | D15 | Passwords: minimum 8 characters, no character-class rules. No CAPTCHA for now; rely on Supabase's email rate limit (30/hour default with custom SMTP). Add Cloudflare Turnstile to sign-up and reset if abuse appears. | Low friction at current traffic. |
 | D16 | `/privacy` and `/terms` ship with accounts, and sign-up requires ticking a consent checkbox. This completes TODO item 7. | Collecting accounts and emails requires a privacy policy before launch. |
 
@@ -149,7 +149,7 @@ The game message gains one type:
 | Endpoint | Contract |
 | --- | --- |
 | `GET /api/me` | `200 { user: { email } \| null }`. |
-| `GET /api/me/achievements?game_id=<uuid>` | `401` when logged out; `200 { unlocked: [{ key, unlocked_at }] }`. `game_id` optional. |
+| `GET /api/me/achievements?game_id=<uuid>` | `401` when logged out; `200 { unlocked: [{ key, unlocked_at }] }`. `game_id` optional; a malformed one is `400`. |
 | `POST /api/achievements` | JSON body exactly `{ game_id, game_version_id, key }`, ≤ 1 KiB, `Content-Type: application/json`, `Origin` must equal `SITE_URL`'s origin. `400` bad body or unknown key, `401` logged out, `403` bad origin, `429` rate-limited, `200 { status: "unlocked" \| "already_unlocked" }`. Database errors → generic `500`. |
 
 Structure it like the events endpoint: a pure request module `src/lib/achievement-request.ts` (parsing, status mapping; dependencies injected, unit-testable) and a server-only `src/lib/achievements.ts` (rate limit + DB calls). The rate limit reuses `consume_event_rate_limit` through the shared `consumeRateLimit(bucket)` in `events.ts` with bucket `"achievement-rate-limit:" + user_id`, i.e. 120 per minute per user. A wrong `Content-Type` is a `400`.

@@ -24,3 +24,26 @@ export async function unlockAchievement(
 
   return status;
 }
+
+export type UserUnlock = { game_id: string; key: string; unlocked_at: string };
+
+export async function getUserAchievements(
+  userId: string,
+  gameId?: string,
+): Promise<UserUnlock[]> {
+  const sql = getDatabase();
+  const rows = await sql<{ game_id: string; key: string; unlocked_at: Date }[]>`
+    select game_id, key, unlocked_at
+    from public.get_user_achievements(${userId}::uuid, ${gameId ?? null}::uuid)
+  `;
+
+  return rows.map((row) => ({
+    game_id: row.game_id,
+    key: row.key,
+    unlocked_at: row.unlocked_at.toISOString(),
+  }));
+}
+
+export async function deleteUserAccount(userId: string): Promise<void> {
+  await getDatabase()`select public.delete_user_account(${userId}::uuid)`;
+}

@@ -2,7 +2,8 @@
 
 import { redirect } from "next/navigation";
 
-import { createSupabaseServerClient } from "@/lib/auth";
+import { deleteUserAccount } from "@/lib/achievements";
+import { createSupabaseServerClient, getCurrentUser } from "@/lib/auth";
 import { safeNext } from "@/lib/auth-request";
 
 export type AuthState = {
@@ -110,6 +111,27 @@ export async function resetPassword(_: AuthState, formData: FormData): Promise<A
 
 export async function logOut(): Promise<void> {
   const supabase = await createSupabaseServerClient();
+  await supabase.auth.signOut({ scope: "local" });
+  redirect("/");
+}
+
+// Re-enter the password so a stolen session alone cannot delete the account (D14).
+export async function deleteAccount(_: AuthState, formData: FormData): Promise<AuthState> {
+  const user = await getCurrentUser();
+
+  if (!user) {
+    redirect("/login?next=/me");
+  }
+
+  const password = String(formData.get("password") ?? "");
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase.auth.signInWithPassword({ email: user.email, password });
+
+  if (error) {
+    return { error: "密码错误，账号未删除。" };
+  }
+
+  await deleteUserAccount(user.id);
   await supabase.auth.signOut({ scope: "local" });
   redirect("/");
 }

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { GameAchievements } from "@/components/game-achievements";
 import { GameCover } from "@/components/game-cover";
 import { PageEvent } from "@/components/page-event";
 import { SiteFooter } from "@/components/site-footer";
@@ -128,6 +129,23 @@ export default async function GameDetailPage(
             </dl>
           </article>
         </section>
+
+        {game.achievements.length > 0 ? (
+          <section className="mt-12 border-t border-white/[0.08] pt-10 sm:pt-12">
+            <p className="text-xs font-bold tracking-[0.2em] text-[#7f95ff] uppercase">
+              Achievements
+            </p>
+            <h2 className="mt-3 text-2xl font-semibold text-white">成就</h2>
+            <div className="mt-6">
+              <GameAchievements
+                accent={game.cover.accent}
+                achievements={game.achievements}
+                gameId={game.id}
+                loginHref={`/login?next=/games/${game.slug}`}
+              />
+            </div>
+          </section>
+        ) : null}
       </main>
       <SiteFooter />
     </div>
