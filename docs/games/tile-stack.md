@@ -1,6 +1,6 @@
 # 摸了个鱼 (`tile-stack`)
 
-**Status:** Design — settled, not yet implemented. Milestones: M1 ☐ · M2 ☐ · M3 ☐
+**Status:** Implemented and published to production 2026-10-01 (`pnpm game publish tile-stack v1`; the play page loads at www.moyufuns.com/play/tile-stack). Milestones: M1 ☑ · M2 ☑ · M3 ☑ (see notes).
 
 A layered tile-matching game in the style of 羊了个羊. Click uncovered tiles from a messy office desk into a 7-slot tray, where three of a kind clear, and empty the desk before the tray fills. There are two levels: an easy tutorial and a hard second level. Mouse or touch, single-player.
 
@@ -177,3 +177,17 @@ Done when: `/play/tile-stack` plays locally, and a logged-in level 1 win unlocks
 ## Open items
 
 - Level 2's difficulty depends on the layout drawn from seed `20260930`. If playtests in M1 find it too easy or too hard, the owner picks another seed or changes the layer counts; tests follow the new seed automatically.
+
+## Implementation notes
+
+- `resize()` sizes the canvas from `document.documentElement.clientWidth/Height`, not 乱刃's `innerWidth/innerHeight`. On phones an oversized canvas inflates `innerWidth` (750 vs 375 CSS px in the emulator), which locked the game into a zoomed-in crop.
+- Power-up keys are the Chinese names: `useProp('移出' | '撤回' | '洗牌')`. 移出 clears the last pick, so 撤回 is disabled until the next pick.
+- The 洗牌 hint is a caption under the button rather than a hover tooltip, so touch players see it too.
+- The level 2 win screen has a `再玩一次` button (restarts level 2) so it is not a dead end.
+- Random clicking wins 0 of 20 level 2 rounds in the headless test. That is expected for random play and says nothing about human difficulty (Open items).
+
+### M3 notes
+
+- Local publish registered the game, five achievements and three stats. A logged-in level 1 win on `/play/tile-stack`, played with real clicks, unlocked `combo_5` and `tutorial` (the site showed the popup) and wrote `rounds 1, wins 1, tiles 18` to `user_game_stats`.
+- Production publish passed upload, verify, register, revalidate and smoke; the play page loads on www.moyufuns.com. Level 2 difficulty from seed `20260930` still needs a human playtest.
+

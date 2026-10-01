@@ -1,0 +1,26 @@
+{
+  "slug": "tile-stack",
+  "name": "摸了个鱼",
+  "shortDescription": "三个一样就消除，赶在老板回来前清空桌面。",
+  "description": "桌上堆满了咖啡、键盘、外卖和奶茶。点击没有被压住的牌放进下方槽位，三张相同即可消除，槽位放满七张就输了。第一关热身，第二关才是真正的挑战。",
+  "tags": ["休闲", "消除", "单人"],
+  "controls": [
+    { "input": "鼠标 / 触摸", "action": "点击牌放入槽位" },
+    { "input": "道具按钮", "action": "移出 / 撤回 / 洗牌（每关各一次）" },
+    { "input": "M", "action": "静音或恢复声音" }
+  ],
+  "cover": { "symbol": "鱼", "eyebrow": "TILE MATCH", "accent": "#5dbb63", "accentSecondary": "#ffd24d" },
+  "sortOrder": 30,
+  "achievements": [
+    { "key": "tutorial", "name": "入职", "description": "通过第一关。", "symbol": "职" },
+    { "key": "clear", "name": "下班", "description": "通过第二关。", "symbol": "班" },
+    { "key": "no_props", "name": "赤手空拳", "description": "不用任何道具通过第二关。", "symbol": "拳" },
+    { "key": "combo_5", "name": "手速惊人", "description": "10 秒内消除 5 组。", "symbol": "速" },
+    { "key": "close_call", "name": "悬崖勒马", "description": "槽位一度只剩 1 格，仍然通过第二关。", "symbol": "悬" }
+  ],
+  "stats": [
+    { "key": "rounds", "name": "对局", "maxPerRound": 1 },
+    { "key": "wins", "name": "通关", "maxPerRound": 1 },
+    { "key": "tiles", "name": "消除", "maxPerRound": 108 }
+  ]
+}

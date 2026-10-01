@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>摸了个鱼</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #2f3b33;
+    user-select: none; -webkit-user-select: none; }
+  #game { position: absolute; inset: 0; display: block; touch-action: none; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<script>
+'use strict';
+/* 摸了个鱼：羊了个羊式叠牌消除。设计文档：docs/games/tile-stack.md */
+
+// ---------- 常量 ----------
+const W = 480, H = 800, TW = 56, TH = 64, TRAY = 7;
+const FONT = '"PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif';
+const EMOJI = '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif';
+const TYPES = ['☕', '⌨️', '🖱️', '🪪', '🥡', '🧋', '📎', '📱', '🎧', '🍪', '📅', '🐟'];
+const COLORS = ['#f6e3c8', '#dfe7f5', '#e8e0f5', '#d9f0e6', '#f7dcd6', '#f3e6d0',
+  '#e3eef0', '#e6e6ee', '#f5d9e8', '#f7ecc9', '#e9f2d6', '#d6ecf7'];
+const LEVELS = {
+  1: { seed: 1, types: ['☕', '⌨️', '🐟'] },
+  2: { seed: 20260930, types: TYPES, layers: [20, 18, 16, 14, 12, 10], stack: 9 },
+};
+const PROPS = ['移出', '撤回', '洗牌'];
+
+// ---------- MoYuFun SDK v1 ----------
+const MOYUFUN_PARENT_ORIGIN = location.hostname === 'localhost'
+  ? 'http://localhost:3000'
+  : 'https://www.moyufuns.com';
+function emitMoYuFunEvent(type) {
+  if (window.parent === window) return;
+  window.parent.postMessage({ source: 'moyufun-game', version: 1, type }, MOYUFUN_PARENT_ORIGIN);
+}
+function emitMoYuFunAchievement(key) {
+  if (window.parent === window) return;
+  window.parent.postMessage({ source: 'moyufun-game', version: 1, type: 'achievement', key }, MOYUFUN_PARENT_ORIGIN);
+}
+// 战绩：每局结算时发送一次，在成就之后、end 之前；键和上限在 game.json 的 stats 中声明。
+function emitMoYuFunStats(stats) {
+  if (window.parent === window) return;
+  window.parent.postMessage({ source: 'moyufun-game', version: 1, type: 'stats', stats }, MOYUFUN_PARENT_ORIGIN);
+}
+// 成就：每局每个 key 最多发送一次；结算时的成就必须在 end 之前发送（主站在 end 后忽略成就）。
+let roundAchievements = new Set();
+function unlockAchievement(key) {
+  if (roundAchievements.has(key)) return;
+  roundAchievements.add(key);
+  emitMoYuFunAchievement(key);
+}
+
+// ---------- 音频 ----------
+let AC = null, master = null, muted = false;
+function ensureAudio() {
+  if (!AC) {
+    try {
+      AC = new (window.AudioContext || window.webkitAudioContext)();
+      master = AC.createGain(); master.gain.value = 0.2; master.connect(AC.destination);
+    } catch (err) { AC = null; }
+  }
+  if (AC && AC.state === 'suspended') AC.resume();
+}
+function tone(f0, f1, dur, type, vol) {
+  if (!AC || muted) return;
+  const t = AC.currentTime, o = AC.createOscillator(), g = AC.createGain();
+  o.type = type || 'sine';
+  o.frequency.setValueAtTime(Math.max(1, f0), t);
+  o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t + dur);
+  g.gain.setValueAtTime(vol || 1, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  o.connect(g); g.connect(master); o.start(t); o.stop(t + dur + 0.03);
+}
+
+// ---------- 关卡生成（固定种子，保证有解） ----------
+function mulberry32(a) {
+  return function () {
+    a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+function shuffle(arr, rnd) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+// top 是否压住 t：侧堆只看同一堆的上层，桌面看更高层的矩形重叠（坐标单位为半张牌）。
+function covers(top, t) {
+  if (top.stack !== null || t.stack !== null) return top.stack === t.stack && top.stackIndex > t.stackIndex;
+  return top.layer > t.layer && Math.abs(top.gx - t.gx) < 2 && Math.abs(top.gy - t.gy) < 2;
+}
+function generateLevel(n) {
+  const L = LEVELS[n], rnd = mulberry32(L.seed), tiles = [];
+  const add = (layer, gx, gy, stack = null, stackIndex = 0) =>
+    tiles.push({ id: tiles.length, type: null, layer, gx, gy, stack, stackIndex });
+  if (n === 1) {
+    for (let layer = 0; layer < 2; layer++)
+      for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) add(layer, c * 2 + layer, r * 2 + layer);
+  } else {
+    L.layers.forEach((count, layer) => {
+      const odd = layer % 2, size = 7 - odd;
+      for (const k of shuffle([...Array(size * size).keys()], rnd).slice(0, count))
+        add(layer, (k % size) * 2 + odd, Math.floor(k / size) * 2 + odd);
+    });
+    for (let s = 0; s < 2; s++) for (let i = 0; i < L.stack; i++) add(i, 0, 0, s, i);
+  }
+  // 随机拿走没被压住的牌直到拿完，这就是一条解法；再按每 9 张一块分配三组三连。
+  const left = new Set(tiles), solution = [];
+  while (left.size) {
+    const free = [...left].filter(t => ![...left].some(o => covers(o, t)));
+    const t = free[Math.floor(rnd() * free.length)];
+    left.delete(t); solution.push(t.id);
+  }
+  const order = shuffle(L.types.slice(), rnd), queue = [];
+  while (queue.length < solution.length / 3) queue.push(...order);
+  for (let b = 0; b < solution.length; b += 9) {
+    const slots = shuffle([0, 1, 2].flatMap(k => Array(3).fill(queue[b / 3 + k])), rnd);
+    solution.slice(b, b + 9).forEach((id, k) => { tiles[id].type = slots[k]; });
+  }
+  return { tiles, solution };
+}
+
+// ---------- 状态 ----------
+let screen = 'start', level = 1, tiles = [], solution = [], drawOrder = [], tray = [], hold = [];
+let used = {}, propsUsed = 0, lastPick = null, triples = 0, tilesCleared = 0, trayPeak = 0;
+let clearTimes = [], gameT = 0, endT = 0, over = false, pops = [], hoverId = -1, ui = [];
+let boardOx = 0, boardOy = 0;
+
+function startLevel(n) {
+  level = n;
+  ({ tiles, solution } = generateLevel(n));
+  drawOrder = tiles.slice().sort((a, b) => a.layer - b.layer);
+  const desk = tiles.filter(t => t.stack === null);
+  boardOx = (W - (Math.max(...desk.map(t => t.gx)) + 2) * 28) / 2;
+  boardOy = 64 + (458 - (Math.max(...desk.map(t => t.gy)) + 2) * 32) / 2;
+  tray = []; hold = []; used = {}; propsUsed = 0; lastPick = null;
+  triples = 0; tilesCleared = 0; trayPeak = 0; clearTimes = []; gameT = 0; endT = 0; pops = [];
+  for (const t of tiles) { t.where = 'board'; const p = targetPos(t); t.px = p.x; t.py = p.y; }
+  over = false; screen = 'play';
+  roundAchievements = new Set();
+  emitMoYuFunEvent('start');
+}
+
+function isCovered(tile) { return tiles.some(o => o.where === 'board' && covers(o, tile)); }
+function clickable(t) { return t.where === 'hold' || (t.where === 'board' && !isCovered(t)); }
+function remaining() { return tiles.filter(t => t.where === 'board' || t.where === 'hold').length; }
+
+function pick(id) {
+  const t = tiles[id];
+  if (over || !t || !clickable(t)) return false;
+  const from = t.where;
+  if (from === 'hold') hold.splice(hold.indexOf(id), 1);
+  const last = tray.map(i => tiles[i].type).lastIndexOf(t.type);
+  tray.splice(last < 0 ? tray.length : last + 1, 0, id);
+  t.where = 'tray';
+  lastPick = { id, from, cleared: false };
+  const same = tray.filter(i => tiles[i].type === t.type);
+  if (same.length === 3) {
+    for (const i of same) {
+      const p = targetPos(tiles[i]);
+      pops.push({ type: t.type, x: p.x, y: p.y, t: 0.25 });
+      tiles[i].where = 'gone';
+    }
+    tray = tray.filter(i => !same.includes(i));
+    lastPick.cleared = true; triples++; tilesCleared += 3;
+    clearTimes.push(gameT);
+    if (clearTimes.length >= 5 && gameT - clearTimes.at(-5) <= 10) unlockAchievement('combo_5');
+    tone(660, 1320, 0.15, 'triangle', 0.5);
+  } else tone(520, 380, 0.06, 'square', 0.25);
+  trayPeak = Math.max(trayPeak, tray.length);
+  if (tray.length >= TRAY) loseLevel();
+  else if (tiles.every(o => o.where === 'gone')) winLevel();
+  return true;
+}
+
+function propReady(name) {
+  if (name === '移出') return tray.length > 0;
+  if (name === '撤回') return !!lastPick && !lastPick.cleared;
+  return true;
+}
+function useProp(name) {
+  if (over || level !== 2 || used[name] || !propReady(name)) return false;
+  if (name === '移出') {
+    hold = tray.splice(0, 3);
+    for (const i of hold) tiles[i].where = 'hold';
+    lastPick = null;
+  } else if (name === '撤回') {
+    const t = tiles[lastPick.id];
+    tray.splice(tray.indexOf(t.id), 1);
+    t.where = lastPick.from;
+    if (t.where === 'hold') hold.push(t.id);
+    lastPick = null;
+  } else {
+    // 洗牌用 Math.random，之后不再保证有解。
+    const rest = tiles.filter(t => t.where === 'board');
+    const types = shuffle(rest.map(t => t.type), Math.random);
+    rest.forEach((t, k) => { t.type = types[k]; });
+  }
+  used[name] = true; propsUsed++;
+  tone(400, 800, 0.12, 'sine', 0.4);
+  return true;
+}
+
+function winLevel() {
+  over = true; screen = 'won'; endT = 0.4;
+  if (level === 1) unlockAchievement('tutorial');
+  else {
+    unlockAchievement('clear');
+    if (!propsUsed) unlockAchievement('no_props');
+    if (trayPeak >= TRAY - 1) unlockAchievement('close_call');
+  }
+  emitMoYuFunStats({ rounds: 1, wins: 1, tiles: tilesCleared });
+  emitMoYuFunEvent('end');
+  tone(523, 1046, 0.5, 'triangle', 0.6);
+}
+function loseLevel() {
+  over = true; screen = 'lost'; endT = 0.4;
+  emitMoYuFunStats({ rounds: 1, wins: 0, tiles: tilesCleared });
+  emitMoYuFunEvent('end');
+  tone(300, 80, 0.5, 'sawtooth', 0.4);
+}
+
+function update(dt) {
+  if (screen === 'play') gameT += dt;
+  endT -= dt;
+  const k = Math.min(1, dt * 14);
+  for (const t of tiles) {
+    if (t.where === 'gone') continue;
+    const p = targetPos(t);
+    t.px += (p.x - t.px) * k; t.py += (p.y - t.py) * k;
+  }
+  for (const p of pops) p.t -= dt;
+  pops = pops.filter(p => p.t > 0);
+}
+
+// ---------- 布局 ----------
+function targetPos(t) {
+  if (t.where === 'tray') return { x: 32 + tray.indexOf(t.id) * 60, y: 702 };
+  if (t.where === 'hold') return { x: 150 + hold.indexOf(t.id) * 62, y: 532 };
+  if (t.stack === 0) return { x: 24 + t.stackIndex * 6, y: 532 };
+  if (t.stack === 1) return { x: W - 24 - TW - t.stackIndex * 6, y: 532 };
+  return { x: boardOx + t.gx * 28, y: boardOy + t.gy * 32 };
+}
+function inRect(p, x, y, w, h) { return p.x >= x && p.x < x + w && p.y >= y && p.y < y + h; }
+function hitTile(p) {
+  for (let k = drawOrder.length - 1; k >= 0; k--) {
+    const t = drawOrder[k];
+    if (t.where !== 'board' && t.where !== 'hold') continue;
+    const q = targetPos(t);
+    if (inRect(p, q.x, q.y, TW, TH)) return t;
+  }
+  return null;
+}
+
+// ---------- 画面 ----------
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const view = { s: 1, ox: 0, oy: 0, dpr: 1, w: 0, h: 0 };
+// 用 clientWidth 而不是 innerWidth：手机上画布一旦过宽，innerWidth 会被撑大，越撑越大。
+function resize() {
+  view.dpr = window.devicePixelRatio || 1;
+  view.w = document.documentElement.clientWidth;
+  view.h = document.documentElement.clientHeight;
+  canvas.width = view.w * view.dpr;
+  canvas.height = view.h * view.dpr;
+  canvas.style.width = view.w + 'px';
+  canvas.style.height = view.h + 'px';
+  view.s = Math.min(view.w / W, view.h / H);
+  view.ox = (view.w - W * view.s) / 2;
+  view.oy = (view.h - H * view.s) / 2;
+}
+window.addEventListener('resize', resize);
+resize();
+
+function rr(x, y, w, h, r) { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); ctx.fill(); }
+function text(s, x, y, size, color, weight) {
+  ctx.font = `${weight || 700} ${size}px ${FONT}`; ctx.fillStyle = color;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(s, x, y);
+}
+// type 为 null 时画牌背（侧堆里压着的牌）。
+function drawTile(type, x, y, dim, hover) {
+  const c = type ? COLORS[TYPES.indexOf(type)] : '#6fa875';
+  ctx.fillStyle = c; rr(x, y, TW, TH, 8);
+  ctx.fillStyle = 'rgba(0,0,0,.25)'; rr(x, y, TW, TH, 8);
+  ctx.fillStyle = c; rr(x, y, TW, TH - 4, 8);
+  ctx.strokeStyle = hover ? '#ff9f1c' : 'rgba(0,0,0,.2)'; ctx.lineWidth = hover ? 3 : 1; ctx.stroke();
+  if (type) {
+    ctx.font = `30px ${EMOJI}`; ctx.fillStyle = '#000';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(type, x + TW / 2, y + TH / 2);
+  } else text('鱼', x + TW / 2, y + TH / 2 - 2, 24, 'rgba(255,255,255,.6)');
+  if (dim) { ctx.fillStyle = 'rgba(0,0,0,.45)'; rr(x, y, TW, TH, 8); }
+}
+function button(x, y, w, h, label, enabled, fn) {
+  ctx.fillStyle = enabled ? '#ff9f1c' : '#b9ab95'; rr(x, y, w, h, 12);
+  text(label, x + w / 2, y + h / 2, 18, enabled ? '#fff' : '#8a7d69');
+  if (enabled) ui.push({ x, y, w, h, fn });
+}
+
+function draw() {
+  ui = [];
+  ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
+  ctx.fillStyle = '#2f3b33'; ctx.fillRect(0, 0, view.w, view.h);
+  ctx.setTransform(view.s * view.dpr, 0, 0, view.s * view.dpr, view.ox * view.dpr, view.oy * view.dpr);
+  ctx.fillStyle = '#e9dcc3'; rr(0, 0, W, H, 18);
+
+  if (screen === 'start') {
+    TYPES.forEach((t, k) => drawTile(t, 36 + (k % 6) * 70, 140 + Math.floor(k / 6) * 76, false, false));
+    text('摸了个鱼', W / 2, 380, 56, '#3d3326', 900);
+    text('赶在老板回来之前，把桌面收拾干净', W / 2, 434, 17, '#7a6a55', 500);
+    button(W / 2 - 80, 490, 160, 56, '开始', true, () => startLevel(1));
+    text('点没被压住的牌放进槽位，三张相同就消除', W / 2, 590, 14, '#9a8a72', 500);
+    text('槽位满七张就输了 · M 静音', W / 2, 614, 14, '#9a8a72', 500);
+    return;
+  }
+
+  text(`第 ${level} 关`, 70, 34, 22, '#3d3326');
+  text(`剩余 ${remaining()} 张`, W - 80, 34, 18, '#7a6a55', 500);
+
+  for (const t of drawOrder) {
+    if (t.where !== 'board') continue;
+    const covered = isCovered(t), faceDown = t.stack !== null && covered;
+    drawTile(faceDown ? null : t.type, t.px, t.py, covered && !faceDown, t.id === hoverId && !covered);
+  }
+
+  PROPS.forEach((name, k) => {
+    const ok = level === 2 && !used[name] && !over && propReady(name);
+    button(40 + k * 140, 610, 120, 44, `${name} ${used[name] ? 0 : 1}`, ok, () => useProp(name));
+  });
+  if (level === 1) text('第二关可用', W / 2, 672, 13, '#9a8a72', 500);
+  else text('洗牌后不保证有解', 380, 672, 12, '#9a8a72', 500);
+
+  ctx.fillStyle = '#7a5c3e'; rr(20, 690, 440, 88, 14);
+  ctx.fillStyle = 'rgba(255,255,255,.12)';
+  for (let k = 0; k < TRAY; k++) rr(32 + k * 60, 702, TW, TH, 8);
+  for (const t of tiles) if (t.where === 'hold' || t.where === 'tray')
+    drawTile(t.type, t.px, t.py, false, t.id === hoverId && t.where === 'hold');
+  for (const p of pops) {
+    ctx.save();
+    ctx.translate(p.x + TW / 2, p.y + TH / 2); ctx.scale(p.t / 0.25, p.t / 0.25);
+    drawTile(p.type, -TW / 2, -TH / 2, false, false);
+    ctx.restore();
+  }
+
+  if (over && endT <= 0) {
+    ui = [];
+    ctx.fillStyle = 'rgba(0,0,0,.45)'; rr(0, 0, W, H, 18);
+    ctx.fillStyle = '#fffaf0'; rr(60, 270, 360, 230, 20);
+    const time = `${Math.floor(gameT / 60)}:${String(Math.floor(gameT % 60)).padStart(2, '0')}`;
+    const [title, sub, label, fn] = screen === 'lost'
+      ? ['槽位满了', `第 ${level} 关 · 还剩 ${remaining()} 张`, '再试一次', () => startLevel(level)]
+      : level === 1
+        ? ['入职成功！', '第二关才是真正的挑战', '第二关', () => startLevel(2)]
+        : ['下班！桌面清空了', `用时 ${time} · 道具 ${propsUsed} 个`, '再玩一次', () => startLevel(2)];
+    text(title, W / 2, 330, 32, '#3d3326', 900);
+    text(sub, W / 2, 378, 17, '#7a6a55', 500);
+    button(W / 2 - 80, 418, 160, 52, label, true, fn);
+  }
+}
+
+// ---------- 输入 ----------
+function toWorld(e) { return { x: (e.clientX - view.ox) / view.s, y: (e.clientY - view.oy) / view.s }; }
+canvas.addEventListener('pointerup', e => {
+  ensureAudio();
+  const p = toWorld(e), b = ui.find(b => inRect(p, b.x, b.y, b.w, b.h));
+  if (b) b.fn();
+  else if (screen === 'play') { const t = hitTile(p); if (t) pick(t.id); }
+});
+canvas.addEventListener('pointermove', e => {
+  if (e.pointerType !== 'mouse') return;
+  const p = toWorld(e), t = screen === 'play' && !over && hitTile(p);
+  hoverId = t && clickable(t) ? t.id : -1;
+  canvas.style.cursor = hoverId >= 0 || ui.some(b => inRect(p, b.x, b.y, b.w, b.h)) ? 'pointer' : 'default';
+});
+window.addEventListener('keydown', e => { if (e.code === 'KeyM') muted = !muted; });
+
+let lastT = 0;
+function loop(now) {
+  const dt = Math.min(0.05, (now - lastT) / 1000 || 0);
+  lastT = now;
+  update(dt); draw();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+// 主站在水合后才监听消息，单发的 ready 可能丢；重复的 ready 主站会忽略。start 在点「开始」时才发。
+emitMoYuFunEvent('ready');
+for (const ms of [500, 2000, 5000]) setTimeout(() => emitMoYuFunEvent('ready'), ms);
+</script>
+</body>
+</html>
