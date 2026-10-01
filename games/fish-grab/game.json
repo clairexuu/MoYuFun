@@ -1,0 +1,31 @@
+{
+  "slug": "fish-grab",
+  "name": "抢鱼 · 3v3 夺鱼战",
+  "shortDescription": "与两名 AI 队友联手，把金鱼抢回自家。",
+  "description": "青鱼门与赤鲤帮三对三，争夺场地中央的金鱼。持鱼者移速变慢且无法使用右槽斩击，一旦受击就会掉鱼。把鱼带回己方阵地得一分，先得五分的一方获胜。",
+  "tags": ["动作", "团队", "单人", "键鼠"],
+  "controls": [
+    { "input": "WASD / 方向键", "action": "移动" },
+    { "input": "鼠标", "action": "瞄准" },
+    { "input": "鼠标左键 / J", "action": "使用左槽斩击" },
+    { "input": "鼠标右键 / K", "action": "使用右槽斩击（持鱼时不可用）" },
+    { "input": "M", "action": "静音或恢复声音" },
+    { "input": "R / B", "action": "再战 / 返回配装" }
+  ],
+  "cover": { "symbol": "鱼", "eyebrow": "3V3 CAPTURE", "accent": "#ffd24d", "accentSecondary": "#4dd2ff" },
+  "sortOrder": 40,
+  "achievements": [
+    { "key": "first_score", "name": "摸到鱼了", "description": "亲手把鱼送回己方。", "symbol": "鱼" },
+    { "key": "first_win", "name": "满载而归", "description": "赢下一局。", "symbol": "归" },
+    { "key": "steal", "name": "截胡", "description": "打掉敌方持鱼者的鱼，并在 3 秒内亲手捡起。", "symbol": "截" },
+    { "key": "hat_trick", "name": "帽子戏法", "description": "单局亲手送回 3 条鱼。", "symbol": "帽" },
+    { "key": "shutout", "name": "零封", "description": "对手一分未得赢下一局。", "symbol": "封" },
+    { "key": "escort", "name": "护驾", "description": "队友持鱼时击倒 3 名敌人。", "symbol": "护" }
+  ],
+  "stats": [
+    { "key": "rounds", "name": "对局", "maxPerRound": 1 },
+    { "key": "wins", "name": "胜利", "maxPerRound": 1 },
+    { "key": "scores", "name": "送鱼", "maxPerRound": 5 },
+    { "key": "kills", "name": "击倒", "maxPerRound": 100 }
+  ]
+}
