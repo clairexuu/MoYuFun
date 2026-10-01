@@ -1,6 +1,6 @@
 # 升官记 (`promotion-2048`)
 
-**Status:** Design — settled, not yet implemented. Milestones: M1 ☐ · M2 ☐ · M3 ☐
+**Status:** Implemented and published to production 2026-09-30 (`pnpm game publish promotion-2048 v1`; the play page loads at www.moyufuns.com/play/promotion-2048). Milestones: M1 ☑ · M2 ☑ · M3 ☑ (see notes).
 
 2048 with job titles. Slide tiles on a 4 × 4 board; two equal titles merge into the next one up, from 实习生 to 财务自由 (2048). Keyboard or swipe, single-player.
 
@@ -17,6 +17,7 @@ Read first: `docs/design/game-release.md` (package contract, `check`, `publish`)
 | D5 | One undo per round (button `背锅侠` or `Z`), one move deep. It restores the board and the score but does not take back achievements already sent. | Gives a safety net without making the game trivial, and keeps achievements simple. |
 | D6 | Creating 财务自由 opens an overlay with `继续卷` (keep playing) and `退休` (end the round now). Either way the round counts as a win. A round otherwise ends when no move is possible. | The original's "keep going" choice, with a themed name. |
 | D7 | Input: arrow keys or WASD; swipes via Pointer Events (a drag over 30 px picks the dominant axis). | Covers keyboard, mouse drag and touch. |
+| D8 | *Changed in M3.* `ready` is sent on load and again at 0.5, 2 and 5 s; a round's `start` is sent on its first move, not on load. Replaces "`start` on page load and on restart". | The site only listens after hydration, and this tiny game loaded first: the single `ready` was lost and the play page stuck on 游戏加载中. Duplicate `ready` messages are ignored by the lifecycle; by the first move the site is listening. |
 
 ## Out of scope
 
@@ -92,17 +93,17 @@ The text colour is `#776e65` for levels 1–2 and `#f9f6f2` above. Each tile sho
 - **Header:** title `升官记`, a `分数` box, the button `背锅侠 ×1` (`背锅侠 ×0` when used, then disabled), and `重新开始`.
 - **Board:** 4 × 4 with 12 px gaps, square, sized to `min(90vw, 90vh − header, 480px)`.
 - **Toast** line under the header, lasting 2 s.
-- There is no separate start screen: the round starts on page load and on `重新开始` or `R`, with `start` sent each time.
+- There is no separate start screen: the board is dealt on page load and on `重新开始` or `R`; `start` goes out on the round's first move (D8).
 - **Game over** overlay: `没有位置了` showing the score and the highest title, plus `再来一局`.
-- **财务自由** overlay: `财务自由了！` with `继续卷` and `退休`.
+- **财务自由** overlay: `财务自由了！` with `继续卷` and `退休`. `退休` shows the end overlay titled `光荣退休`.
 
 ### Functions
 
 - `slide(board, dir)`: pure. `dir` is `'left' | 'right' | 'up' | 'down'`.
 - `canMove(board)`: pure.
 - `move(dir)`:
-  1. Saves `{ board, score }` for undo.
-  2. Calls `slide`. If nothing moved, it does nothing.
+  1. Calls `slide`. If nothing moved, it does nothing.
+  2. Sends `start` if this is the round's first move, and saves `{ board, score }` for undo.
   3. Applies the result, `merges += merged.length`, spawns a tile, and runs the achievement checks.
   4. If no move is possible, calls `endRound()`.
 - `undo()`
@@ -142,6 +143,8 @@ In `endRound()`, before `end`: `emitMoYuFunStats({ rounds: 1, wins: won ? 1 : 0,
 
 The same rows are also tested through `right`, `up` and `down` by transposing the board.
 
+**Load.** Only `ready` is sent until the first move.
+
 **Simulation.** 20 rounds of random moves until `!canMove`. Assert no level above 11 and that the empty count plus the filled count equals 16. Every round ends with `…, stats, end`.
 
 **Deterministic round.** `startGame()`, then set `board` directly before each move. Stub spawning to fill a fixed corner so it can't merge.
@@ -157,6 +160,8 @@ Note that step 2 creates two 总监 (level 6), and `manager` (level 5) is not se
 
 **Undo.** `undo()` restores the board and score exactly. A CEO created after an undo sends `ceo` without `no_undo`.
 
+**Restart.** Mid-round after a move sends `stats, end`; before any move sends nothing, and the next move sends `start`.
+
 ## Milestones
 
 Each milestone ends with `node games/promotion-2048/v1/test_headless.js` passing.
@@ -169,3 +174,9 @@ Done when: `pnpm game check promotion-2048 v1` passes.
 
 **M3 · Local release.** `pnpm game:local publish promotion-2048 v1 --yes`.
 Done when: `/play/promotion-2048` plays locally, and a logged-in round unlocks `manager` and updates the board. The owner runs the production publish.
+
+### M3 notes
+
+- Local publish registered the game, five achievements and three stats. A logged-in round on `/play/promotion-2048` unlocked `manager` and wrote `rounds 1, wins 0, merges 38` to `user_game_stats`.
+- The first local load stuck on 游戏加载中 (lost `ready`), which led to D8. The fix was made after v1 was registered locally; the local static server serves the file from disk, so it was verified anyway. Production gets the fixed file.
+- Gotcha for testing in the browser pane: keys pressed faster than the 100 ms slide are dropped by design, so automated play needs ~150 ms between keys.

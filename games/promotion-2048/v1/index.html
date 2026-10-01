@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>升官记</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root { --gap: 12px; --size: min(90vw, calc(90vh - 150px), 480px);
+    --step: calc((var(--size) - var(--gap)) / 4); --cell: calc(var(--step) - var(--gap)); }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #faf8ef; color: #776e65;
+    font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+    user-select: none; -webkit-user-select: none; }
+  body { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  header { width: var(--size); display: flex; align-items: center; gap: 8px; }
+  h1 { font-size: min(34px, 7vw); font-weight: 800; letter-spacing: 2px; margin-right: auto; white-space: nowrap; }
+  .score { background: #bbada0; color: #fff; border-radius: 6px; padding: 4px 12px; text-align: center; }
+  .score small { display: block; font-size: 11px; color: #eee4da; }
+  .score b { font-size: 18px; }
+  button { font: inherit; font-weight: 700; font-size: min(14px, 3.6vw); border: 0; border-radius: 6px; padding: 9px min(12px, 2.4vw); white-space: nowrap;
+    background: #8f7a66; color: #f9f6f2; cursor: pointer; }
+  button:disabled { opacity: .4; cursor: default; }
+  #toast { height: 34px; line-height: 34px; font-size: 15px; font-weight: 700; color: #f65e3b;
+    transition: opacity .3s; opacity: 0; }
+  #toast.show { opacity: 1; }
+  #board { position: relative; width: var(--size); height: var(--size); background: #bbada0;
+    border-radius: 10px; touch-action: none; }
+  .cell, .tile { position: absolute; left: var(--gap); top: var(--gap); width: var(--cell); height: var(--cell);
+    transform: translate(calc(var(--x) * var(--step)), calc(var(--y) * var(--step))); }
+  .cell { background: rgba(238, 228, 218, .35); border-radius: 6px; }
+  .tile { transition: transform 100ms ease-in-out; }
+  .tile > div { position: relative; width: 100%; height: 100%; border-radius: 6px; background: var(--bg); color: var(--fg);
+    display: flex; align-items: center; justify-content: center; font-weight: 800; white-space: nowrap;
+    font-size: calc(var(--cell) * var(--fs)); }
+  .tile i { position: absolute; right: 6px; bottom: 3px; font-style: normal; font-size: max(10px, calc(var(--cell) * .14)); opacity: .7; }
+  .tile.pop > div { animation: pop 120ms; }
+  .tile.new > div { animation: grow 120ms; }
+  @keyframes pop { from { transform: scale(1.15); } }
+  @keyframes grow { from { transform: scale(0); } }
+  #overlay { position: absolute; inset: 0; border-radius: 10px; background: rgba(250, 248, 239, .82); display: none;
+    flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; padding: 16px; }
+  #overlay.show { display: flex; }
+  #overlay h2 { font-size: 38px; font-weight: 800; }
+  #overlay div { display: flex; gap: 10px; }
+  #help { margin-top: 12px; font-size: 13px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>升官记</h1>
+  <div class="score"><small>分数</small><b id="score">0</b></div>
+  <button id="undo">背锅侠 ×1</button>
+  <button id="restart">重新开始</button>
+</header>
+<div id="toast"></div>
+<div id="board">
+  <div id="cells"></div>
+  <div id="tiles"></div>
+  <div id="overlay"><h2 id="ovTitle"></h2><p id="ovText"></p><div id="ovBtns"></div></div>
+</div>
+<p id="help">方向键 / WASD / 滑动屏幕 · Z 撤回 · M 静音 · R 重开</p>
+<script>
+// ---------- MoYuFun SDK v1 ----------
+const MOYUFUN_PARENT_ORIGIN = location.hostname === 'localhost'
+  ? 'http://localhost:3000'
+  : 'https://www.moyufuns.com';
+function emitMoYuFunEvent(type) {
+  if (window.parent === window) return;
+  window.parent.postMessage({ source: 'moyufun-game', version: 1, type }, MOYUFUN_PARENT_ORIGIN);
+}
+function emitMoYuFunAchievement(key) {
+  if (window.parent === window) return;
+  window.parent.postMessage({ source: 'moyufun-game', version: 1, type: 'achievement', key }, MOYUFUN_PARENT_ORIGIN);
+}
+// 战绩：每局结算时发送一次，在成就之后、end 之前；键和上限在 game.json 的 stats 中声明。
+function emitMoYuFunStats(stats) {
+  if (window.parent === window) return;
+  window.parent.postMessage({ source: 'moyufun-game', version: 1, type: 'stats', stats }, MOYUFUN_PARENT_ORIGIN);
+}
+// 成就：每局每个 key 最多发送一次；结算时的成就必须在 end 之前发送（主站在 end 后忽略成就）。
+let roundAchievements = new Set();
+function unlockAchievement(key) {
+  if (roundAchievements.has(key)) return;
+  roundAchievements.add(key);
+  emitMoYuFunAchievement(key);
+}
+
+// ---------- 音频 ----------
+let AC = null, master = null, muted = false;
+function ensureAudio() {
+  if (!AC) {
+    try {
+      AC = new (window.AudioContext || window.webkitAudioContext)();
+      master = AC.createGain(); master.gain.value = 0.2; master.connect(AC.destination);
+    } catch (err) { AC = null; }
+  }
+  if (AC && AC.state === 'suspended') AC.resume();
+}
+function tone(f0, f1, dur, type, vol) {
+  if (!AC || muted) return;
+  const t = AC.currentTime, o = AC.createOscillator(), g = AC.createGain();
+  o.type = type || 'sine';
+  o.frequency.setValueAtTime(Math.max(1, f0), t);
+  o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t + dur);
+  g.gain.setValueAtTime(vol || 1, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  o.connect(g); g.connect(master); o.start(t); o.stop(t + dur + 0.03);
+}
+function noiseHit(dur, vol, fc) {
+  if (!AC || muted) return;
+  const t = AC.currentTime, len = Math.max(1, (dur * AC.sampleRate) | 0);
+  const buf = AC.createBuffer(1, len, AC.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+  const s = AC.createBufferSource(); s.buffer = buf;
+  const f = AC.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = fc;
+  const g = AC.createGain(); g.gain.value = vol;
+  s.connect(f); f.connect(g); g.connect(master); s.start(t);
+}
+
+// ---------- 职位 ----------
+const TITLES = [null,
+  { name: '实习生', bg: '#eee4da', line: '' },
+  { name: '专员', bg: '#ede0c8', line: '终于转正了' },
+  { name: '组长', bg: '#f2b179', line: '手下有两个实习生' },
+  { name: '主管', bg: '#f59563', line: '开始写周报的周报' },
+  { name: '经理', bg: '#f67c5f', line: '会议多到没空摸鱼' },
+  { name: '总监', bg: '#f65e3b', line: 'PPT 越做越大' },
+  { name: '副总', bg: '#edcf72', line: '司机比你先到公司' },
+  { name: '总经理', bg: '#edcc61', line: '年会坐第一排' },
+  { name: 'CEO', bg: '#edc850', line: '开始讲情怀' },
+  { name: '董事长', bg: '#edc53f', line: '只需要敲钟' },
+  { name: '财务自由', bg: '#3c3a32', line: '终于可以光明正大地摸鱼' },
+];
+TITLES.forEach((t, lv) => { if (t) { t.value = 2 ** lv; t.fg = lv <= 2 ? '#776e65' : '#f9f6f2'; } });
+
+// ---------- 规则（纯函数） ----------
+// 棋盘是 16 格的等级数组（0 = 空），下标 = 行 * 4 + 列。LINES[dir] 的每条线从移动方向的边开始。
+const LINES = { left: [], right: [], up: [], down: [] };
+for (let i = 0; i < 4; i++) {
+  const row = [0, 1, 2, 3].map(k => i * 4 + k), col = [0, 1, 2, 3].map(k => k * 4 + i);
+  LINES.left.push(row); LINES.right.push([...row].reverse());
+  LINES.up.push(col); LINES.down.push([...col].reverse());
+}
+// moves 记录每块的起止格，供动画使用；两块落到同一格即为合并。
+function slide(board, dir) {
+  const out = board.slice(), merged = [], moves = [];
+  let gain = 0, moved = false;
+  for (const line of LINES[dir]) {
+    let t = -1, canMerge = false;
+    for (const i of line) out[i] = 0;
+    for (const i of line) {
+      const v = board[i];
+      if (!v) continue;
+      if (canMerge && out[line[t]] === v) {
+        out[line[t]] = v + 1; merged.push(v + 1); gain += 2 ** (v + 1); canMerge = false;
+      } else {
+        out[line[++t]] = v; canMerge = true;
+      }
+      moves.push({ from: i, to: line[t] });
+      if (i !== line[t]) moved = true;
+    }
+  }
+  return { board: out, moved, merged, gain, moves };
+}
+function canMove(board) {
+  return board.includes(0) || ['left', 'right', 'up', 'down'].some(d => slide(board, d).moved);
+}
+
+// ---------- 状态 ----------
+let rng = Math.random;
+let board, score, merges, won, over, hasMoved, undoUsed, prev, seen;
+let busy = false, overlayOpen = false, animT = 0, toastT = 0;
+const $ = id => document.getElementById(id);
+const tilesEl = $('tiles');
+let els = [];
+
+function spawn() {
+  const empty = [];
+  board.forEach((v, i) => { if (!v) empty.push(i); });
+  if (!empty.length) return -1;
+  const i = empty[Math.floor(rng() * empty.length)];
+  board[i] = rng() < 0.9 ? 1 : 2;
+  return i;
+}
+
+function move(dir) {
+  if (over) return;
+  const r = slide(board, dir);
+  if (!r.moved) return;
+  if (!hasMoved) emitMoYuFunEvent('start');
+  prev = { board: board.slice(), score };
+  board = r.board; score += r.gain; merges += r.merged.length; hasMoved = true;
+  const spawned = spawn();
+  animate(r.moves, spawned);
+  updateHud();
+
+  const m = r.merged;
+  if (m.includes(5)) unlockAchievement('manager');
+  if (m.filter(lv => lv >= 6).length >= 2) unlockAchievement('double');
+  if (m.includes(9)) {
+    unlockAchievement('ceo');
+    if (!undoUsed) unlockAchievement('no_undo');
+  }
+  let newest = 0;
+  for (const lv of m) if (!seen.has(lv)) { seen.add(lv); newest = Math.max(newest, lv); }
+  if (newest) toast(`升任 ${TITLES[newest].name}！${TITLES[newest].line}`);
+  if (m.length) tone(260 * 2 ** (Math.max(...m) / 6), 520 * 2 ** (Math.max(...m) / 6), 0.12, 'triangle', 0.5);
+  else noiseHit(0.05, 0.15, 1800);
+
+  if (m.includes(11) && !won) {
+    won = true;
+    unlockAchievement('freedom');
+    tone(523, 1046, 0.6, 'triangle', 0.7);
+    showOverlay('财务自由了！', `分数 ${score}`, [['继续卷', continueWork], ['退休', retire]]);
+  }
+  if (!canMove(board)) endRound();
+}
+
+function undo() {
+  if (!prev || undoUsed || over) return;
+  board = prev.board; score = prev.score; prev = null; undoUsed = true;
+  render(); updateHud();
+}
+function retire() { endRound(true); }
+function continueWork() { hideOverlay(); }
+
+function endRound(retired) {
+  if (over) return;
+  over = true;
+  emitMoYuFunStats({ rounds: 1, wins: won ? 1 : 0, merges: Math.min(merges, 20000) });
+  emitMoYuFunEvent('end');
+  updateHud();
+  showOverlay(retired ? '光荣退休' : '没有位置了',
+    `分数 ${score} · 最高职位 ${TITLES[Math.max(...board)].name}`, [['再来一局', startGame]]);
+}
+
+function startGame() {
+  if (hasMoved && !over) endRound();
+  board = Array(16).fill(0); score = 0; merges = 0;
+  won = false; over = false; hasMoved = false; undoUsed = false; prev = null;
+  roundAchievements = new Set(); seen = new Set();
+  spawn(); spawn();
+  hideOverlay(); render(); updateHud();
+}
+
+// ---------- 画面 ----------
+function render(pops = [], spawned = -1) {
+  clearTimeout(animT); busy = false;
+  tilesEl.innerHTML = ''; els = [];
+  board.forEach((lv, i) => {
+    if (!lv) return;
+    const t = TITLES[lv], el = document.createElement('div');
+    el.className = 'tile' + (pops.includes(i) ? ' pop' : i === spawned ? ' new' : '');
+    el.style.setProperty('--x', i % 4); el.style.setProperty('--y', i >> 2);
+    el.style.setProperty('--bg', t.bg); el.style.setProperty('--fg', t.fg);
+    el.style.setProperty('--fs', [0, 0, 0.34, 0.27, 0.21][t.name.length]);
+    el.innerHTML = `<div>${t.name}<i>${t.value}</i></div>`;
+    tilesEl.appendChild(el); els[i] = el;
+  });
+}
+// 先把现有方块滑到目标格，100 ms 后按新棋盘重建（合并的弹一下，新块从 0 长出）。
+function animate(moves, spawned) {
+  for (const { from, to } of moves) {
+    const el = els[from];   // board 被直接替换时（如测试）可能没有对应方块
+    if (el) { el.style.setProperty('--x', to % 4); el.style.setProperty('--y', to >> 2); }
+  }
+  const pops = moves.map(mv => mv.to).filter((to, k, all) => all.indexOf(to) !== k);
+  clearTimeout(animT); busy = true;
+  animT = setTimeout(() => render(pops, spawned), 100);
+}
+function updateHud() {
+  $('score').textContent = score;
+  $('undo').textContent = `背锅侠 ×${undoUsed ? 0 : 1}`;
+  $('undo').disabled = undoUsed || !prev || over;
+}
+function toast(text) {
+  const el = $('toast');
+  el.textContent = text; el.classList.add('show');
+  clearTimeout(toastT);
+  toastT = setTimeout(() => el.classList.remove('show'), 2000);
+}
+function showOverlay(title, text, buttons) {
+  $('ovTitle').textContent = title; $('ovText').textContent = text;
+  const box = $('ovBtns'); box.innerHTML = '';
+  for (const [label, fn] of buttons) {
+    const b = document.createElement('button');
+    b.textContent = label; b.onclick = fn;
+    box.appendChild(b);
+  }
+  $('overlay').classList.add('show'); overlayOpen = true;
+}
+function hideOverlay() { $('overlay').classList.remove('show'); overlayOpen = false; }
+
+for (let i = 0; i < 16; i++) {
+  const c = document.createElement('div');
+  c.className = 'cell'; c.style.setProperty('--x', i % 4); c.style.setProperty('--y', i >> 2);
+  $('cells').appendChild(c);
+}
+
+// ---------- 输入 ----------
+function input(dir) { if (!busy && !overlayOpen) move(dir); }
+const DIRS = { ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right',
+  ArrowUp: 'up', KeyW: 'up', ArrowDown: 'down', KeyS: 'down' };
+window.addEventListener('keydown', e => {
+  ensureAudio();
+  if (e.code === 'KeyM') muted = !muted;
+  else if (e.code === 'KeyR') startGame();
+  else if (e.code === 'KeyZ' && !overlayOpen) undo();
+  else if (DIRS[e.code]) { e.preventDefault(); input(DIRS[e.code]); }
+});
+let swipe = null;
+$('board').addEventListener('pointerdown', e => { ensureAudio(); swipe = { x: e.clientX, y: e.clientY }; });
+$('board').addEventListener('pointerup', e => {
+  if (!swipe) return;
+  const dx = e.clientX - swipe.x, dy = e.clientY - swipe.y;
+  swipe = null;
+  if (Math.max(Math.abs(dx), Math.abs(dy)) <= 30) return;
+  input(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up'));
+});
+$('undo').addEventListener('click', () => { ensureAudio(); undo(); });
+$('restart').addEventListener('click', () => { ensureAudio(); startGame(); });
+
+// 主站在水合后才监听消息，这个小游戏加载太快，单发的 ready 会丢；重复的 ready 主站会忽略。
+// start 在每局第一次移动时才发，那时主站一定已就绪。
+emitMoYuFunEvent('ready');
+for (const ms of [500, 2000, 5000]) setTimeout(() => emitMoYuFunEvent('ready'), ms);
+startGame();
+</script>
+</body>
+</html>

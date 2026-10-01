@@ -1,0 +1,28 @@
+{
+  "slug": "promotion-2048",
+  "name": "升官记",
+  "shortDescription": "2048 职场版：从实习生一路合成到财务自由。",
+  "description": "方向键滑动棋盘，两个相同的职位合并成更高一级。从实习生、专员、经理、总监一路升到 CEO 和董事长，最终实现财务自由。每局可以让背锅侠帮你撤回一步。",
+  "tags": ["益智", "2048", "单人"],
+  "controls": [
+    { "input": "方向键 / WASD", "action": "滑动" },
+    { "input": "拖动 / 滑动屏幕", "action": "滑动" },
+    { "input": "Z", "action": "撤回一步（每局一次）" },
+    { "input": "M", "action": "静音或恢复声音" },
+    { "input": "R", "action": "重新开始" }
+  ],
+  "cover": { "symbol": "升", "eyebrow": "2048", "accent": "#ffb020", "accentSecondary": "#ff5a5a" },
+  "sortOrder": 60,
+  "achievements": [
+    { "key": "manager", "name": "升任经理", "description": "合成经理。", "symbol": "经" },
+    { "key": "ceo", "name": "走上巅峰", "description": "合成 CEO。", "symbol": "巅" },
+    { "key": "freedom", "name": "财务自由", "description": "合成财务自由。", "symbol": "由" },
+    { "key": "double", "name": "双喜临门", "description": "一步之内合成两个总监或更高职位。", "symbol": "喜" },
+    { "key": "no_undo", "name": "不背锅", "description": "不用撤回合成 CEO。", "symbol": "锅" }
+  ],
+  "stats": [
+    { "key": "rounds", "name": "对局", "maxPerRound": 1 },
+    { "key": "wins", "name": "财务自由", "maxPerRound": 1 },
+    { "key": "merges", "name": "升职", "maxPerRound": 20000 }
+  ]
+}
