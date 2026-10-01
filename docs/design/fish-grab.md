@@ -1,6 +1,6 @@
 # 抢鱼 · 3v3 夺鱼战 (`fish-grab`)
 
-**Status:** In progress. Milestones: M1 ☑ · M2 ☑ · M3 ☐
+**Status:** Implemented locally 2026-09-30. Milestones: M1 ☑ · M2 ☑ · M3 ☑ (local; see notes). **Production publish pending** (`pnpm game publish fish-grab v1`, run by the owner).
 
 A 3v3 capture game built on 乱刃's combat: you and 2 AI allies fight 3 AI enemies over a golden fish in the middle of the arena, and carry it home to score. First team to 5 wins. The six slashes and their numbers are reused unchanged, so this is a new mode, not new combat. Single-player only, keyboard and mouse only.
 
@@ -157,6 +157,13 @@ Done when: `pnpm game check fish-grab v1` passes.
 
 **M3 · Local release.** `pnpm game:local publish fish-grab v1 --yes`.
 Done when: `/play/fish-grab` plays locally, and a logged-in round unlocks `first_score` and updates the board. The owner runs the production publish.
+
+### M3 notes
+
+- Local publish registered the game, all six achievements and four stats. A logged-in round played through `/play/fish-grab` wrote `rounds/wins/scores/kills` to `user_game_stats`.
+- The in-site `first_score` unlock was not exercised by hand: the browser automation cannot hold movement keys. Emission order is covered by the deterministic headless round; the owner should confirm it with one real carry before or after the production publish.
+- Gotcha: under `pnpm dev`, the first iframe load can lose the `ready` race against hydration and stay on "游戏加载中" (乱刃 does the same). Reloading the iframe fixes it; production is static and not affected.
+- AI-only simulations end in about 35–75 s (5 scores). This is fast but within D5; tuning stays an open item.
 
 ## Open items
 
