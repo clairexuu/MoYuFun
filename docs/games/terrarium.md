@@ -1,6 +1,6 @@
 # 生态瓶 (`terrarium`)
 
-**Status:** Implemented 2026-10-02 (`games/terrarium/v1/`), released locally; production publish follows (`pnpm game publish terrarium v1`). Milestones: M1 ☑ · M2 ☑ · M3 ☑ (see notes).
+**Status:** Implemented and published to production 2026-10-02 (`pnpm game publish terrarium v1`; the play page loads at www.moyufuns.com/play/terrarium). Milestones: M1 ☑ · M2 ☑ · M3 ☑ (see notes).
 
 A sealed-jar ecosystem sim built around one up-front decision. With a budget of 100 贝壳, put organisms and materials into a glass jar, pick its light, and seal the lid. After that you can only watch (and change the speed) while 100 days play out. The jar wins if animals and plants are both still alive on day 100. If it collapses, the end screen shows the population curves and a plain-language cause of death. Mouse or touch, single-player.
 
