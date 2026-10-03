@@ -1,0 +1,28 @@
+{
+  "slug": "paper-plane",
+  "name": "纸飞机邮差",
+  "shortDescription": "按住上扬，松开俯冲，驾着纸飞机把信送遍屋顶小镇。",
+  "description": "你是一架载着信件的纸飞机。按住让机头上扬，松开让它俯冲：俯冲换速度，爬升耗速度，太慢就会失速。钻进烟囱冒出的炊烟能被托上高空，穿过邮筒上方的投递区就算送达。一天三条线路，争取每一程都盖上金邮戳。",
+  "tags": ["竞速", "单键", "单人"],
+  "controls": [
+    { "input": "按住鼠标 / 触摸 / 空格", "action": "机头上扬" },
+    { "input": "松开", "action": "机头下沉、俯冲加速" },
+    { "input": "R", "action": "重新开始这一天" },
+    { "input": "M", "action": "静音或恢复声音" }
+  ],
+  "cover": { "symbol": "信", "eyebrow": "GLIDE RACE", "accent": "#f4f1e8", "accentSecondary": "#e25c3c" },
+  "sortOrder": 180,
+  "achievements": [
+    { "key": "updraft", "name": "扶摇直上", "description": "在同一股炊烟里被连续托升 300。", "symbol": "扶" },
+    { "key": "deliver_all", "name": "一封不落", "description": "一程之内送达全部信件。", "symbol": "封" },
+    { "key": "gold", "name": "金邮戳", "description": "任意一程跑进金牌时间。", "symbol": "金" },
+    { "key": "all_gold", "name": "金牌邮差", "description": "同一天三程全部金牌。", "symbol": "冠" },
+    { "key": "flawless", "name": "毫发无伤", "description": "送完一整天，一次也没撞毁。", "symbol": "安" }
+  ],
+  "stats": [
+    { "key": "rounds", "name": "对局", "maxPerRound": 1 },
+    { "key": "wins", "name": "送完一天", "maxPerRound": 1 },
+    { "key": "letters", "name": "送达信件", "maxPerRound": 20 },
+    { "key": "golds", "name": "金邮戳", "maxPerRound": 3 }
+  ]
+}

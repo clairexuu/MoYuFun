@@ -1,6 +1,6 @@
 # 纸飞机邮差 (`paper-plane`)
 
-**Status:** Design — settled, not yet implemented. Milestones: M1 ☐ · M2 ☐ · M3 ☐
+**Status:** Implemented 2026-10-02 (`games/paper-plane/v1/`), released locally; production publish follows (`pnpm game publish paper-plane v1`). Milestones: M1 ☑ · M2 ☑ · M3 ☑ (see notes).
 
 A one-button glide race. You are a paper airplane carrying letters over a rooftop town: hold to pitch the nose up, release to let it dip. Diving buys speed, climbing spends it, and chimney smoke lifts you back up. Fly through the zone above each mailbox to deliver, and reach the post office fast. A day is three routes in a row, each with medal times. Mouse, touch or Space, single-player.
 
@@ -153,7 +153,7 @@ m: [4,10,17,26,33], c: [10,20,30],
 w: [[2180,230,2480,310],[5720,260,6020,340]], l: [[6700,330],[6950,420]], z: [[8000,9500,0,1000,120,0]]
 ```
 
-**Route 2 · 风车坡** (afternoon `#bfe3ff → #f4f1e8`, windmills drawn on tall roofs):
+**Route 2 · 风车坡** (afternoon `#bfe3ff → #f4f1e8`, windmills turning on the parallax hills; *changed in M1*, see Implementation notes):
 
 ```js
 row: [[400,320],[240,200],[260,160],[220,260],[300,180],[240,380],[260,220],[220,160,360],[300,240],[240,200],[260,420],[220,180],[300,140],[240,260],[260,200,300],[220,320],[300,160],[240,140],[260,440],[220,200],[300,180],[240,240,400],[260,160],[220,300],[300,200],[240,140],[260,380],[220,220],[300,160],[240,260],[260,180,300],[220,420],[300,200],[240,140],[260,240],[220,300],[300,160],[240,200],[260,360],[220,180],[300,240],[240,160],[260,140],[220,280],[400,320]],
@@ -303,6 +303,29 @@ Done when: `pnpm game check paper-plane v1` passes.
 
 **M3 · Local release.** `pnpm game:local publish paper-plane v1 --yes`.
 Done when `/play/paper-plane` plays locally, and a logged-in route 1 finish with every letter delivered unlocks `deliver_all` and updates the board. The owner runs the production publish.
+
+## Implementation notes
+
+No decision (D1–D10) changed. The model is transcribed line for line; the three recorded scripts replay to 47.09 / 63.28 / 81.26 s with 0 crashes and every letter delivered, and script 1 sends `updraft` at step 781.
+
+- *Changed in M1:* route 2's windmills turn on the parallax hills, not on tall roofs. A windmill on a roof looks like an obstacle the plane would hit, but it has no collision.
+- `stepRun` emits `updraft` once, on the step where `rise` crosses 300, not on every step at or above it. The first send is the same step; `tick` shows `扶摇直上！` only the first time in a round.
+- `stepRun(run, hold, mg = 0)` and `hits(run, mg = 0)` take the recorder's safety margin (collision radius `R + mg`, mail zones shrunk by `mg`). The game always passes 0.
+- `buildCourse` also returns `name`, `medals`, `cap`, `src` (sky, wall and window colours), `bi` (building index) on thermals, mailboxes and checkpoints, and the derived wire `poles`. `roofAt` returns the first building containing `x` (buildings never overlap).
+- `node test_headless.js --record` reproduces script 2 bit for bit. Scripts 1 and 3 come out slightly different (47.07 and 81.70 s, both still clean and under gold), so the prototype's search had a different tie-break or score weight. The shipped scripts are the doc's; re-record only after a model or course change.
+- Canvas buttons come from `buttons()`, computed from the current state for both drawing and hit-testing. `下一程` / `再送一天` are greyed and inert for the 0.5 s lock.
+- Hold = Space or any pointer down off a button, tracked as a set of pointer ids with capture; `pointerup`, `pointercancel` and `lostpointercapture` remove one, and `blur` clears all. Space and Enter ignore key repeat. Space also works as `出发` on the start screen.
+- The headless loss test asserts `crashes ≥ 20` (the plane crashes 29 times on its launch roof before 135 s) and `cpi === −1`.
+- Additions not in the doc: a route progress bar under the route name (mailbox dots by state, checkpoint ticks), speed lines above 330, a dawn sun / afternoon clouds / night stars and moon, the route 1 intro hint `钻进炊烟被托高 · 穿过虚线框送信 · 太慢会失速`, `✉ n/m` on the route card, `合计 … · 送达 n 封` on the day card, and `第 n 程超过 cap 秒` on the lost card. The day-won card shows a medal disc per route.
+- Visual check was done with screenshots from a separate headless Chrome on a scratch copy (start, intro, flight on all three routes, crash, route card, day won, lost), with no console errors. The real mouse / touch / Space playtest is part of M3.
+
+### M3 notes
+
+- Local publish registered the game, its achievements and stats; the smoke test found `/play/paper-plane` serving v1.
+- In the browser, route 1's recorded script, fed through the real `requestAnimationFrame` loop one bit per 12 steps, finished in 47.09 s with 0 crashes and 5/5 letters, exactly as in the headless test, and unlocked `updraft`, `deliver_all` and `gold`. The route card and gold stamp render correctly. No console errors.
+- On `/play/paper-plane`, a real click on the intro launched the plane and `R` ended the round: `game_ready`, `game_start` and `game_end` reached the local events table. No account was logged in, so the achievement popup and stats board were not exercised in the browser.
+- Gotcha for replaying scripts by hand: a script bit covers 0.1 s, i.e. 12 model steps, not one.
+- Medal times still need a human playtest (Open items).
 
 ## Open items
 
