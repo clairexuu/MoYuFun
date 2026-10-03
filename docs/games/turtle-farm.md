@@ -1,6 +1,6 @@
 # 玄武农场 (`turtle-farm`)
 
-**Status:** Implemented 2026-10-02 (`games/turtle-farm/v1/`), released locally; production publish follows (`pnpm game publish turtle-farm v1`). Milestones: M1 ☑ · M2 ☑ · M3 ☑ (see notes).
+**Status:** Implemented and published to production 2026-10-02 (`pnpm game publish turtle-farm v1`; the play page loads at www.moyufuns.com/play/turtle-farm). Milestones: M1 ☑ · M2 ☑ · M3 ☑ (see notes).
 
 A farming game on the back of a walking giant turtle. Your 4 × 4 field rides 玄武 across 草原, 雨林, 沙漠 and 雪原 for 30 days, stopping at a 集市 every sixth day. Each crop grows fast in the land it likes and withers if it spends too long in land it hates, and the route is visible only 5 days ahead. So you plant now for the land the field will cross while the crop grows, and harvest in time to sell at the next market. Earn 800 金币 by the end of day 30. Mouse or touch, single-player, about 6 minutes at 1×.
 
