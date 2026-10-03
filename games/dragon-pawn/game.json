@@ -1,0 +1,30 @@
+{
+  "slug": "dragon-pawn",
+  "name": "龙的当铺",
+  "shortDescription": "开在地牢门口的龙之当铺：验宝、砍价、等勇者回不来。",
+  "description": "勇者们下地牢前，会把宝物押给你换金币。对照鉴定手册查看印记、铭文、宝石和材质，揪出赝品，再跟勇者讨价还价。活着回来的连本带利赎回，没被识破的骗子却会卷款溜走，回不来的宝物就归你的宝库。七天后宝库价值达到 1000 金即可获胜。",
+  "tags": ["经营", "鉴定", "单人"],
+  "controls": [
+    { "input": "鼠标 / 触摸", "action": "点击宝物部位查看、标记疑点、出价" },
+    { "input": "1–4 / X", "action": "查看部位 / 标记疑点" },
+    { "input": "← → / Enter", "action": "调整出价 / 出价" },
+    { "input": "B", "action": "打开或合上鉴定手册" },
+    { "input": "M", "action": "静音或恢复声音" }
+  ],
+  "cover": { "symbol": "当", "eyebrow": "PAWNSHOP", "accent": "#e0a020", "accentSecondary": "#c0392b" },
+  "sortOrder": 110,
+  "achievements": [
+    { "key": "sharp_eye", "name": "火眼金睛", "description": "一局内当面识破 5 件赝品。", "symbol": "眼" },
+    { "key": "first_hoard", "name": "第一件宝贝", "description": "第一件真品落入宝库。", "symbol": "库" },
+    { "key": "big_haul", "name": "稀世珍宝", "description": "一件价值 300 金以上的真品入库。", "symbol": "珍" },
+    { "key": "loan_shark", "name": "龙息高利", "description": "一局内累计收取利息 500 金。", "symbol": "利" },
+    { "key": "win", "name": "富可敌国", "description": "第七天结束时宝库价值达到 1000 金。", "symbol": "富" },
+    { "key": "clean_win", "name": "明察秋毫", "description": "获胜，且从未冤枉好人、宝库里没有赝品。", "symbol": "察" }
+  ],
+  "stats": [
+    { "key": "rounds", "name": "对局", "maxPerRound": 1 },
+    { "key": "wins", "name": "获胜", "maxPerRound": 1 },
+    { "key": "fakes", "name": "识破赝品", "maxPerRound": 42 },
+    { "key": "hoard", "name": "宝库价值", "maxPerRound": 20000 }
+  ]
+}

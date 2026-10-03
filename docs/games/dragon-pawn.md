@@ -1,6 +1,6 @@
 # 龙的当铺 (`dragon-pawn`)
 
-**Status:** Design — settled, not yet implemented. Milestones: M1 ☐ · M2 ☐ · M3 ☐
+**Status:** Implemented 2026-10-02 (`games/dragon-pawn/v1/`), released locally; production publish follows (`pnpm game publish dragon-pawn v1`). Milestones: M1 ☑ · M2 ☑ · M3 ☑ (see notes).
 
 A management and appraisal game. You are a dragon running a pawnshop at the mouth of a dungeon. Heroes pawn treasures for gold before they descend. Check each treasure against the 鉴定手册 to catch forgeries, then haggle over the loan. Survivors repay with interest, except forgers you failed to catch, who abscond. The dead forfeit their pledge to your hoard, and a fake is worth nothing. Fill the hoard to 1000 金 by the end of day 7. Mouse or touch, single-player, about 8 minutes.
 
@@ -173,7 +173,7 @@ These lines are the same for every mood:
 3. Else: `patience −= 1`, `A = max(floor, round5((A + amount) / 2))`, and the result is `counter`.
 4. If `patience ≤ 0` after step 2 or 3, the result is `walked` instead.
 
-`acceptCounter()` makes a deal at the current ask, after any counter or insult. A deal subtracts the loan from gold and adds `{ hero, loan, caught }` to `loans`, where `caught` is true if this hero was 露馅.
+`acceptCounter()` makes a deal at the current ask, after any counter, insult or 露馅 (*changed in M1*: 露馅 added). It throws if the ask is above gold. A deal subtracts the loan from gold and adds `{ hero, loan, caught }` to `loans`, where `caught` is true if this hero was 露馅.
 
 `confront()` requires at least one mark and works once per hero:
 - **露馅 (`caught`):** some mark is in `item.flaws`. The ask and floor become `round5(x × 0.4)`, the item shows a red `赝品` stamp, and `fakesCaught++`. False marks alongside a real hit are ignored.
@@ -183,16 +183,16 @@ These lines are the same for every mood:
 
 ### Treasure drawing
 
-The canvas is 360 × 360 logical, at 70–430 × 230–590 on the stage. Each type is a filled silhouette in its material colour, with a darker outline and a white gradient sheen. The gem is a faceted circle (r 16) in its colour. The mark is the character at 14 px in a small square seal. The motto is its four characters at 8 px, so it is unreadable without the loupe. Hotspots are circles of r 30:
+The canvas is 360 × 360 logical, at 70–430 × 230–590 on the stage. Each type is a filled silhouette in its material colour, with a darker outline and a white gradient sheen. The gem is a faceted circle (r 16) in its colour. The mark is the character at 14 px in a small square seal. The motto is its four characters at 8 px, so it is unreadable without the loupe. Hotspots are circles of r 30. *Changed in M1:* material also has a hotspot, on a bare patch of the body, so every part can be inspected by tapping the treasure; before, material was reachable only through its button.
 
-| type | silhouette | gem | motto | mark |
-| --- | --- | --- | --- | --- |
-| 戒指 | ring, centre (180,200), R 90, band 26 | (180,105) | (180,288) | (100,200) |
-| 护符 | teardrop pendant on a chain from the top | (180,190) | (180,280) | (180,120) |
-| 酒杯 | bowl, stem, foot | (180,150) | (180,95) | (180,320) |
-| 长剑 | vertical blade, guard at y 262, pommel at y 335 | (180,262) | (180,150) | (180,335) |
-| 圆盾 | disc, centre (180,180), R 140 | (180,180) | (180,300) | (180,70) |
-| 王冠 | band y 230–290, five spikes up to y 110 | (180,200) | (180,265) | (100,265) |
+| type | silhouette | gem | motto | mark | material |
+| --- | --- | --- | --- | --- | --- |
+| 戒指 | ring, centre (180,200), R 90, band 26 | (180,105) | (180,288) | (100,200) | (262,200) |
+| 护符 | teardrop pendant on a chain from the top | (180,190) | (180,280) | (180,120) | (236,228) |
+| 酒杯 | bowl, stem, foot | (180,150) | (180,95) | (180,320) | (112,100) |
+| 长剑 | vertical blade, guard at y 262, pommel at y 335 | (180,262) | (180,150) | (180,335) | (180,72) |
+| 圆盾 | disc, centre (180,180), R 140 | (180,180) | (180,300) | (180,70) | (84,190) |
+| 王冠 | band y 230–290, five spikes up to y 110 | (180,200) | (180,265) | (100,265) | (262,262) |
 
 Clicking a hotspot, or one of the four part buttons under the canvas (`印记` `铭文` `宝石` `材质`), calls `inspect(part)`. A clicked hotspot shows a 160 px loupe: the region drawn at 2.5× with `drawImage` from the item canvas. Under it is a label: `印记：「焱」`, `铭文：百炼成峰`, `宝石：苍色` or `材质：青铜` (with a swatch). The label has a `标为疑点` / `取消疑点` toggle. A marked part's button and hotspot get a red ring.
 
@@ -207,7 +207,7 @@ Clicking a hotspot, or one of the four part buttons under the canvas (`印记` `
 - **Top bar (0–60):** `第 N / 7 天`, a candle bar for the time left, `💰 gold`, `💎 hoard / 1000`, `📖 手册` and `🔊`.
 - **Hero (60–220):** avatar at 72 px, `name Lv.N`, gear icons, mood face, and a speech bubble. The claim card is under the bubble. A hero walks in 1 s after the previous one leaves, with a bell sound.
 - **Treasure (230–640):** the canvas, the part buttons, and the loupe label.
-- **Deal (650–940):** the offer slider with `出价 N 金`. Buttons: `出价`, `接受 A 金` (only after a counter or insult), `指出疑点（n）` (disabled with no marks, or after use), `拒绝`. Under them: `今日已押 k 件 · 剩余顾客 m`.
+- **Deal (650–940):** the offer slider with `出价 N 金`. Buttons: `出价`, `接受 A 金` (only after a counter, insult or 露馅; *changed in M1*: 露馅 added, since its line asks `{A} 金你要不要？`), `指出疑点（n）` (disabled with no marks, or after use), `拒绝`. Under them: `今日已押 k 件 · 剩余顾客 m`.
 - **Manual drawer:** covers the stage, with tabs `工坊` (the workshop table: mark, motto, materials), `矿脉` (mines with colour swatches and names), `材质` (colours and multipliers, plus type base values) and `冒险者`. The last tab reads: `Lv1–3：多半回不来` / `Lv4–7：五五开` / `Lv8–10：大多能回来` / `每件装备多一分把握` / `地牢一天比一天深` / `没被识破的骗子，活着也不会回来还钱`. Close with `合上`. The candle keeps burning while it is open.
 - **Night:** `第 N 天 · 夜`, one row per loan, then `💰 gold · 💎 hoard` and a `天亮了` button (`结算` after day 7). Rows:
   - `{avatar} {name} 回来了，还款 {repay} 金（利息 {int}）`
@@ -324,6 +324,25 @@ Done when: `pnpm game check dragon-pawn v1` passes.
 
 **M3 · Local release.** `pnpm game:local publish dragon-pawn v1 --yes`.
 Done when: `/play/dragon-pawn` plays locally, and a logged-in round unlocks `first_hoard` and updates the stats board. The owner runs the production publish.
+
+## Implementation notes
+
+- Code: `games/dragon-pawn/v1/index.html` (one file), `games/dragon-pawn/game.json` (copied verbatim from *Package*). Test: `node games/dragon-pawn/v1/test_headless.js`; package: `pnpm game check dragon-pawn v1` (Node 24).
+- Balance through the real code (200 seeds each, `test_headless.js`): expert 68.5%, naive 3.0%. The prototype's 1000-seed numbers were 66% / 4%; the gap is only `rng` call order.
+- Logic never touches the DOM (D11). Visual feedback goes through an `fx` queue (`coins`, `float`, `shake`, `stamp`, `confetti`) that `render()` drains each frame with the Web Animations API. Sounds call `tone` directly from logic, as 摸了个鱼 does.
+- `heroDone()` swaps in the next hero at once, so tests and bots see no delay. The walk-out and walk-in are drawn from `enterT` (1 s): the leaving hero keeps their last line for 0.25 s, slides out, then the new one slides in with the bell at 0.5 s. Input is ignored until `enterT` reaches 0. Hero and treasure slide together.
+- The night overlay fades in 0.7 s after `endDay()` so the last hero's reply is readable. `天亮了` (button or Enter) waits for `enterT` too, so mashing Enter to offer cannot skip the night report.
+- Offer amounts are capped at `maxOffer() = floor5(min(gold, listValue))`: repayments of `round(loan × 1.5)` make gold a non-multiple of 5. `offer()` throws only outside `[5, min(gold, listValue)]`. The balance bots cap with `maxOffer()`.
+- Extra input beyond D13: `−`/`+` buttons beside the slider (fine steps on touch), `Esc` closes the manual, `Enter` also presses 开张, 天亮了 and 再开一家. Enter's keydown calls `preventDefault()` so a focused button is not clicked twice.
+- The loupe glass is 160 px outside with a 146 px lens; the source square is `146 / 2.5` px, so magnification is exactly 2.5×. The item canvas has a 720 px backing store (2×), enough for 3× phones at the stage's usual scale.
+- The manual drawer covers the stage below the top bar, so the candle stays visible while it burns (D9).
+
+### M3 notes
+
+- Local publish registered the game, its achievements and stats; the smoke test found `/play/dragon-pawn` serving v1.
+- Played in the browser: 开张, inspecting parts with the loupe, the manual's tabs, an insulting offer (the hero walked), a 300 金 loan that was accepted (gold 770 → 470), refusing the rest, and the 第 1 天 · 夜 report. No console errors. On `/play/dragon-pawn`, `game_ready` and `game_start` reached the local events table. No account was logged in, so the achievement popup and stats board were not exercised in the browser; the headless test covers the message sequence.
+- Fixed in M3: the loupe kept the previous hero's zoomed part when the next hero arrived, because the redraw key was reset to `''`, the same value as "nothing inspected". It is now reset to `null`.
+- In the desktop play page the 540 × 960 portrait stage is letterboxed, so text is small; fullscreen (`全屏`) helps.
 
 ## Open items
 

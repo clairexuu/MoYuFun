@@ -1,0 +1,950 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>龙的当铺</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root { --gold: #e0a020; --gold2: #f4c95d; --red: #c0392b; --ink: #2b1d14; --parch: #f3e6c8; --dim: #b9a58a; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #0d080c;
+    user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
+  #stage { position: absolute; left: 0; top: 0; width: 540px; height: 960px; transform-origin: 0 0; overflow: hidden;
+    border-radius: 18px; color: var(--parch); touch-action: manipulation;
+    font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
+    background: radial-gradient(ellipse at 50% 42%, #47303a 0%, #2a1a24 55%, #170e15 100%); }
+  .abs { position: absolute; }
+  button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; }
+  button:disabled { cursor: default; }
+  .serif { font-family: "Songti SC", "STSong", "Noto Serif CJK SC", "SimSun", serif; }
+
+  /* 顶栏 */
+  #top { left: 0; top: 0; width: 540px; height: 60px; display: flex; align-items: center; gap: 10px; padding: 0 12px;
+    background: linear-gradient(#22151d, #1a1017); border-bottom: 1px solid #4a3340; font-size: 16px; font-weight: 700; }
+  #day { width: 78px; white-space: nowrap; }
+  #candle { flex: 1; height: 14px; border-radius: 7px; background: #3a2a30; position: relative; }
+  #candleFill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 7px;
+    background: linear-gradient(90deg, #f6e7c1, #fff6dc); }
+  #candleFill.low { background: linear-gradient(90deg, #e8664a, #ffb36b); }
+  #flame { position: absolute; right: -9px; top: -13px; font-size: 18px; animation: flick .35s infinite alternate; }
+  #candleTxt { position: absolute; inset: -2px 0 0; text-align: center; font-size: 12px; color: #2b1d14; line-height: 18px; }
+  @keyframes flick { from { transform: scale(1) rotate(-4deg); } to { transform: scale(1.12) rotate(4deg); } }
+  #gold, #hoard { white-space: nowrap; }
+  #gold { width: 76px; color: var(--gold2); }
+  #hoard { width: 128px; color: #9fe3ee; }
+  .tb { height: 38px; padding: 0 9px; border-radius: 10px; background: #3a2733; font-size: 15px; white-space: nowrap; }
+  .tb:hover { background: #4b3342; }
+
+  /* 勇者 */
+  #heroBox { left: 0; top: 60px; width: 540px; height: 165px; }
+  #avatar { left: 18px; top: 8px; width: 88px; height: 82px; font-size: 64px; line-height: 82px; text-align: center;
+    filter: drop-shadow(0 4px 6px rgba(0,0,0,.5)); }
+  #face { left: 78px; top: 4px; font-size: 26px; }
+  #heroName { left: 6px; top: 90px; width: 112px; text-align: center; font-size: 16px; font-weight: 800; white-space: nowrap; }
+  #gear { left: 6px; top: 114px; width: 112px; text-align: center; font-size: 17px; letter-spacing: 2px; min-height: 22px; }
+  #bubble { left: 128px; top: 10px; width: 396px; min-height: 74px; padding: 10px 14px; border-radius: 14px;
+    background: #fff8e8; color: var(--ink); font-size: 17px; line-height: 1.45; font-weight: 600;
+    box-shadow: 0 4px 12px rgba(0,0,0,.35); }
+  #bubble::before { content: ''; position: absolute; left: -10px; top: 26px; border: 8px solid transparent;
+    border-right: 10px solid #fff8e8; border-left: 0; }
+  #claim { left: 128px; top: 112px; width: 396px; height: 40px; border-radius: 10px; border: 1px dashed #a88a5c;
+    background: rgba(243, 230, 200, .1); text-align: center; line-height: 38px; font-size: 16px; font-weight: 700; color: var(--gold2); white-space: nowrap; }
+
+  /* 宝物 */
+  #treasure { left: 0; top: 225px; width: 540px; height: 420px; }
+  #pedestal { left: 90px; top: 340px; width: 320px; height: 36px; border-radius: 50%;
+    background: radial-gradient(ellipse, rgba(0,0,0,.55), transparent 70%); }
+  #item { left: 70px; top: 5px; width: 360px; height: 360px; }
+  .hot { position: absolute; width: 60px; height: 60px; margin: -30px 0 0 -30px; border-radius: 50%;
+    border: 2px dashed rgba(255, 240, 200, .0); transition: border-color .15s, box-shadow .15s; }
+  .hot:hover, .hot:focus-visible { border-color: rgba(255, 240, 200, .7); outline: none; }
+  .hot.on { border: 3px solid var(--gold2); box-shadow: 0 0 14px rgba(244, 201, 93, .6); }
+  .hot.marked { border: 3px solid #ff4b3a; box-shadow: 0 0 14px rgba(255, 75, 58, .7); }
+  #stamp { left: 150px; top: 150px; width: 200px; text-align: center; font-size: 54px; font-weight: 900; color: #e0302a;
+    border: 6px double #e0302a; border-radius: 10px; transform: rotate(-14deg); opacity: 0; pointer-events: none;
+    text-shadow: 0 0 2px rgba(0,0,0,.3); background: rgba(255, 240, 230, .12); }
+  #stamp.show { opacity: .92; }
+  #loupe { left: 372px; top: 8px; width: 160px; }
+  #loupeGlass { width: 160px; height: 160px; border-radius: 50%; border: 7px solid #b88a2c; overflow: hidden; position: relative;
+    background: #1d1218; box-shadow: 0 6px 18px rgba(0,0,0,.6), inset 0 0 0 2px #f4c95d; }
+  #loupeC { width: 146px; height: 146px; display: block; }
+  #loupeGlass::after { content: ''; position: absolute; inset: 0; border-radius: 50%;
+    background: radial-gradient(circle at 32% 28%, rgba(255,255,255,.35), transparent 40%); }
+  #loupeHint { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center;
+    padding: 18px; font-size: 14px; color: var(--dim); line-height: 1.5; }
+  #loupeLabel { margin-top: 6px; padding: 6px 4px; border-radius: 8px; background: rgba(20, 12, 16, .85);
+    text-align: center; font-size: 16px; font-weight: 800; min-height: 32px; white-space: nowrap; }
+  .sw { display: inline-block; width: 14px; height: 14px; border-radius: 3px; vertical-align: -1px; margin-left: 4px; border: 1px solid #0006; }
+  #markBtn { margin-top: 6px; width: 160px; height: 38px; border-radius: 10px; font-size: 15px; font-weight: 800;
+    background: #5a2a2a; color: #ffd9d2; }
+  #markBtn.on { background: #3a3036; color: #e9d9c0; }
+  #parts { left: 30px; top: 372px; width: 480px; display: flex; gap: 10px; }
+  .part { flex: 1; height: 42px; border-radius: 10px; background: #3a2733; font-size: 16px; font-weight: 800; border: 2px solid transparent; }
+  .part:hover:not(:disabled) { background: #4b3342; }
+  .part.on { border-color: var(--gold2); }
+  .part.marked { border-color: #ff4b3a; color: #ffb2a8; }
+  .part kbd { font: inherit; font-size: 11px; opacity: .5; margin-left: 4px; }
+
+  /* 交易 */
+  #deal { left: 20px; top: 650px; width: 500px; height: 295px; border-radius: 16px; padding: 14px 18px;
+    background: linear-gradient(#2c1c26, #23161f); border: 1px solid #4a3340; box-shadow: 0 -4px 20px rgba(0,0,0,.3); }
+  #offerRow { display: flex; align-items: center; gap: 10px; }
+  #offerLabel { font-size: 22px; font-weight: 800; width: 150px; white-space: nowrap; }
+  #offerLabel b { color: var(--gold2); font-size: 28px; }
+  .step { width: 40px; height: 40px; border-radius: 50%; background: #3a2733; font-size: 22px; font-weight: 900; }
+  .step:disabled { opacity: .35; }
+  #slider { flex: 1; -webkit-appearance: none; appearance: none; height: 10px; border-radius: 5px; background: #4a3340; outline: none; }
+  #slider::-webkit-slider-thumb { -webkit-appearance: none; width: 30px; height: 30px; border-radius: 50%;
+    background: radial-gradient(circle at 35% 35%, #fff2c0, #e0a020 60%, #9a6a10); border: 2px solid #5a3a08; cursor: pointer; }
+  #slider::-moz-range-thumb { width: 28px; height: 28px; border-radius: 50%; background: #e0a020; border: 2px solid #5a3a08; cursor: pointer; }
+  #slider:disabled { opacity: .4; }
+  #btns { margin-top: 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .big { height: 56px; border-radius: 14px; font-size: 19px; font-weight: 800; transition: transform .08s, filter .15s;
+    box-shadow: 0 4px 0 rgba(0,0,0,.35); }
+  .big:active:not(:disabled) { transform: translateY(3px); box-shadow: 0 1px 0 rgba(0,0,0,.35); }
+  .big:hover:not(:disabled) { filter: brightness(1.1); }
+  .big:disabled { filter: grayscale(.8) brightness(.6); opacity: .55; }
+  .gold { background: linear-gradient(#f4c95d, #d99a1e); color: #3a2208; }
+  .green { background: linear-gradient(#7fd18a, #3f9c55); color: #0f2a15; }
+  .redb { background: linear-gradient(#e76a5a, #b53428); color: #fff1ec; }
+  .grey { background: linear-gradient(#5c4653, #44323d); color: #eadccc; }
+  .hide { visibility: hidden; }
+  #queueInfo { margin-top: 14px; text-align: center; font-size: 15px; color: var(--dim); }
+
+  /* 覆盖层 */
+  .ov { position: absolute; left: 0; top: 0; width: 540px; height: 960px; display: none; flex-direction: column; align-items: center;
+    background: rgba(14, 8, 12, .9); z-index: 10; }
+  .ov.show { display: flex; animation: fade .35s both; }
+  @keyframes fade { from { opacity: 0; } }
+  #title { justify-content: center; text-align: center; background: radial-gradient(ellipse at 50% 35%, #4d2f2a, #170e15 75%); }
+  #title .dragon { font-size: 110px; filter: drop-shadow(0 8px 16px rgba(0,0,0,.6)); animation: bob 2.4s ease-in-out infinite; }
+  @keyframes bob { 50% { transform: translateY(-10px) rotate(-3deg); } }
+  h1 { font-size: 64px; letter-spacing: 8px; color: var(--gold2); text-shadow: 0 4px 0 #6b3d0c, 0 8px 24px rgba(0,0,0,.6); }
+  .sub { margin-top: 8px; font-size: 19px; color: #e9cfa4; }
+  .rules { margin: 34px 40px 0; padding: 16px 20px; border-radius: 14px; background: rgba(243, 230, 200, .08);
+    border: 1px solid #5a4048; font-size: 16px; line-height: 1.9; text-align: left; }
+  .rules li { list-style: none; }
+  .rules li::before { content: '◆ '; color: var(--gold); }
+  .wide { width: 220px; height: 64px; font-size: 24px; margin-top: 34px; }
+  .keys { margin-top: 22px; font-size: 13px; color: var(--dim); }
+  #manual { top: 60px; height: 900px; background: #f1e3c2; color: var(--ink); align-items: stretch;
+    background-image: radial-gradient(ellipse at 50% 0, #fbf1da, #e8d4a8); }
+  #manHead { display: flex; align-items: center; padding: 14px 18px 8px; gap: 10px; }
+  #manHead h2 { font-size: 26px; margin-right: auto; }
+  #tabs { display: flex; gap: 6px; padding: 0 18px; border-bottom: 2px solid #b8975e; }
+  .tab { padding: 10px 16px; font-size: 17px; font-weight: 800; border-radius: 10px 10px 0 0; color: #6d5434; }
+  .tab.on { background: #b8975e; color: #fff8e6; }
+  #manBody { padding: 14px 18px; overflow: auto; flex: 1; font-size: 17px; }
+  #manBody table { width: 100%; border-collapse: collapse; }
+  #manBody td, #manBody th { padding: 9px 6px; border-bottom: 1px solid #d3bb8a; text-align: left; vertical-align: middle; }
+  #manBody th { font-size: 14px; color: #7a5f3a; }
+  .seal { display: inline-block; width: 38px; height: 38px; line-height: 34px; text-align: center; font-size: 26px; font-weight: 800;
+    color: #8b1a1a; border: 2px solid #8b1a1a; border-radius: 6px; background: #fff7e3; }
+  .motto { font-size: 22px; font-weight: 800; letter-spacing: 3px; }
+  .chip { display: inline-flex; align-items: center; gap: 4px; margin-right: 10px; white-space: nowrap; }
+  .chip i { display: inline-block; width: 18px; height: 18px; border-radius: 50%; border: 1px solid #0005; }
+  .note { margin-top: 14px; font-size: 14px; color: #7a5f3a; line-height: 1.6; }
+  .lines li { list-style: none; padding: 10px 0; border-bottom: 1px solid #d3bb8a; font-size: 19px; }
+  #night { justify-content: center; background: rgba(8, 6, 18, .93); animation-delay: .7s !important; }
+  #night h2, #end h2 { font-size: 38px; color: #cfd8ff; letter-spacing: 4px; }
+  #night .moon { font-size: 60px; }
+  #rows { margin-top: 18px; width: 470px; }
+  .row { padding: 11px 14px; margin-bottom: 8px; border-radius: 10px; background: rgba(255,255,255,.06); font-size: 16px; line-height: 1.45;
+    animation: rowIn .4s both; }
+  .row.good { border-left: 4px solid #6fd17f; }
+  .row.bad { border-left: 4px solid #e2574a; }
+  .row.dead { border-left: 4px solid #9fe3ee; }
+  @keyframes rowIn { from { opacity: 0; transform: translateX(-30px); } }
+  #nightSum { margin-top: 14px; font-size: 22px; font-weight: 800; animation: rowIn .4s both; }
+  #end { justify-content: center; text-align: center; }
+  #end h2 { font-size: 56px; color: var(--gold2); }
+  #endText { margin-top: 18px; font-size: 20px; line-height: 1.6; padding: 0 30px; }
+  #endStats { margin-top: 14px; font-size: 16px; color: var(--dim); line-height: 1.8; }
+  #fx { position: absolute; inset: 0; pointer-events: none; z-index: 20; overflow: hidden; }
+  .p { position: absolute; left: 0; top: 0; font-size: 22px; will-change: transform; }
+  .float { position: absolute; font-size: 24px; font-weight: 900; text-shadow: 0 2px 4px #000; white-space: nowrap; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="top" class="abs">
+    <div id="day"></div>
+    <div id="candle"><div id="candleFill"><span id="flame">🔥</span></div><div id="candleTxt"></div></div>
+    <div id="gold"></div>
+    <div id="hoard"></div>
+    <button id="bookBtn" class="tb">📖 手册</button>
+    <button id="muteBtn" class="tb">🔊</button>
+  </div>
+
+  <div id="heroBox" class="abs">
+    <div id="avatar" class="abs"></div>
+    <div id="face" class="abs"></div>
+    <div id="heroName" class="abs"></div>
+    <div id="gear" class="abs"></div>
+    <div id="bubble" class="abs"></div>
+    <div id="claim" class="abs"></div>
+  </div>
+
+  <div id="treasure" class="abs">
+    <div id="pedestal" class="abs"></div>
+    <canvas id="item" class="abs" width="720" height="720"></canvas>
+    <div id="hots" class="abs" style="left:70px;top:5px;width:360px;height:360px">
+      <button id="hot_mark" class="hot" aria-label="印记"></button>
+      <button id="hot_motto" class="hot" aria-label="铭文"></button>
+      <button id="hot_gem" class="hot" aria-label="宝石"></button>
+      <button id="hot_material" class="hot" aria-label="材质"></button>
+    </div>
+    <div id="stamp" class="abs serif">赝品</div>
+    <div id="loupe" class="abs">
+      <div id="loupeGlass"><canvas id="loupeC" width="320" height="320"></canvas><div id="loupeHint">点宝物上的部位<br>用放大镜细看</div></div>
+      <div id="loupeLabel"></div>
+      <button id="markBtn">标为疑点</button>
+    </div>
+    <div id="parts" class="abs">
+      <button id="part_mark" class="part">印记<kbd>1</kbd></button>
+      <button id="part_motto" class="part">铭文<kbd>2</kbd></button>
+      <button id="part_gem" class="part">宝石<kbd>3</kbd></button>
+      <button id="part_material" class="part">材质<kbd>4</kbd></button>
+    </div>
+  </div>
+
+  <div id="deal" class="abs">
+    <div id="offerRow">
+      <div id="offerLabel">出价 <b id="offerNum">0</b> 金</div>
+      <button id="minus" class="step">−</button>
+      <input id="slider" type="range" min="5" max="5" step="5" value="5" aria-label="出价">
+      <button id="plus" class="step">+</button>
+    </div>
+    <div id="btns">
+      <button id="offerBtn" class="big gold">出价</button>
+      <button id="acceptBtn" class="big green">接受</button>
+      <button id="confrontBtn" class="big redb">指出疑点（0）</button>
+      <button id="refuseBtn" class="big grey">拒绝</button>
+    </div>
+    <div id="queueInfo"></div>
+  </div>
+
+  <div id="manual" class="ov">
+    <div id="manHead"><h2 class="serif">📖 鉴定手册</h2><button id="closeBook" class="big gold" style="width:110px;height:46px">合上</button></div>
+    <div id="tabs"></div>
+    <div id="manBody"></div>
+  </div>
+
+  <div id="night" class="ov">
+    <div class="moon">🌙</div>
+    <h2 id="nightTitle" class="serif"></h2>
+    <div id="rows"></div>
+    <div id="nightSum"></div>
+    <button id="dawnBtn" class="big gold wide" style="margin-top:22px">天亮了</button>
+  </div>
+
+  <div id="end" class="ov">
+    <div id="endIcon" style="font-size:96px"></div>
+    <h2 id="endTitle" class="serif"></h2>
+    <div id="endText"></div>
+    <div id="endStats"></div>
+    <button id="againBtn" class="big gold wide">再开一家</button>
+  </div>
+
+  <div id="title" class="ov show">
+    <div class="dragon">🐉</div>
+    <h1 class="serif">龙的当铺</h1>
+    <div class="sub">地牢门口，只收宝贝，不问来路</div>
+    <ul class="rules">
+      <li>对照鉴定手册，找出赝品的破绽</li>
+      <li>出价放贷，勇者活着回来连本带利还钱，没识破的骗子一去不回</li>
+      <li>回不来的，宝物归你。七天内宝库攒满 1000 金</li>
+    </ul>
+    <button id="openBtn" class="big gold wide">开张</button>
+    <div class="keys">1–4 查看部位 · X 标记 · ←→ 调价 · Enter 出价 · B 手册 · M 静音</div>
+  </div>
+
+  <div id="fx"></div>
+</div>
+<script>
+'use strict';
+/* 龙的当铺：地牢门口的当铺，验宝、砍价、放贷。设计文档：docs/games/dragon-pawn.md */
+
+// ---------- 常量与鉴定手册 ----------
+const W = 540, H = 960;
+const START_GOLD = 800, RENT = 30, INTEREST = 0.5, HEROES_PER_DAY = 6, DAY_SECONDS = 70, HOARD_TARGET = 1000, DAYS = 7;
+const FAKE_RATE = [0.25, 0.30, 0.35, 0.40, 0.45, 0.50, 0.50];
+const PARTS = ['mark', 'motto', 'gem', 'material'];
+const PART_NAMES = { mark: '印记', motto: '铭文', gem: '宝石', material: '材质' };
+const WORKSHOPS = {
+  炉心: { mark: '炎', look: '焱', motto: '百炼成锋', typos: [['炼', '练'], ['锋', '峰']], materials: ['黑铁', '金'] },
+  霜语: { mark: '霜', look: '雷', motto: '寒光映雪', typos: [['光', '先'], ['映', '英']], materials: ['银', '秘银'] },
+  月匠: { mark: '月', look: '丹', motto: '清辉满庭', typos: [['辉', '挥'], ['庭', '延']], materials: ['银', '金'] },
+  山根: { mark: '山', look: '出', motto: '稳如磐石', typos: [['磐', '盘'], ['石', '右']], materials: ['黑铁', '青铜'] },
+  星斗: { mark: '斗', look: '斤', motto: '斗转星移', typos: [['转', '专'], ['移', '侈']], materials: ['秘银', '金'] },
+  龟甲: { mark: '龟', look: '黾', motto: '万古长存', typos: [['古', '吉'], ['存', '在']], materials: ['青铜', '银'] },
+};
+const MINES = {
+  熔喉: { colours: ['赤', '琥'] }, 霜岭: { colours: ['苍', '素'] }, 幽林: { colours: ['碧', '苍'] },
+  暮渊: { colours: ['紫', '赤'] }, 晨崖: { colours: ['琥', '素'] },
+};
+const GEMS = { 赤: '#d23c3c', 琥: '#e0a020', 苍: '#3a6fd8', 碧: '#2fa86a', 紫: '#8e44ad', 素: '#eceef4' };
+const MATERIALS = {
+  青铜: { mult: 0.6, color: '#b08d57' }, 银: { mult: 1.0, color: '#c0c6cc' }, 黑铁: { mult: 1.2, color: '#4a4e57' },
+  金: { mult: 1.5, color: '#e8c04a' }, 秘银: { mult: 2.0, color: '#9fe3ee' },
+};
+const TYPES = { 戒指: 80, 护符: 100, 酒杯: 120, 长剑: 160, 圆盾: 180, 王冠: 240 };
+// 热点（物件画布坐标）；材质热点是本版加的，便于触屏查看材质。
+const HOTS = {
+  戒指: { mark: [100, 200], motto: [180, 288], gem: [180, 105], material: [262, 200] },
+  护符: { mark: [180, 120], motto: [180, 280], gem: [180, 190], material: [236, 228] },
+  酒杯: { mark: [180, 320], motto: [180, 95], gem: [180, 150], material: [112, 100] },
+  长剑: { mark: [180, 335], motto: [180, 150], gem: [180, 262], material: [180, 72] },
+  圆盾: { mark: [180, 70], motto: [180, 300], gem: [180, 180], material: [84, 190] },
+  王冠: { mark: [100, 265], motto: [180, 265], gem: [180, 200], material: [262, 262] },
+};
+const NAMES = ['艾琳', '阿岗', '小葵', '铁头', '莫老三', '白鸦', '菲奥', '大熊', '青禾', '罗兰', '小满', '石锤'];
+const AVATARS = ['🧝', '🧙', '🤺', '🥷', '🧔', '🧚'];
+const GEAR = ['⚔️', '🛡️', '🧪'];
+const MOODS = {
+  急: { face: '😰', lo: 0.45, hi: 0.60, patience: 3 },
+  稳: { face: '🙂', lo: 0.60, hi: 0.75, patience: 2 },
+  傲: { face: '😤', lo: 0.75, hi: 0.90, patience: 1 },
+};
+const LINES = {
+  open: { 急: ['求求你，我急着下去救人！', '随便给点就行，地牢里等不了。'], 稳: ['按行情来，公道就好。', '这件东西跟了我好些年。'], 傲: ['这可是传家宝，你最好识货。', '别跟我讨价还价，龙。'] },
+  counter: { 急: ['再加点吧，{A} 金，就 {A}！'], 稳: ['{A} 金，不能再少了。'], 傲: ['{A} 金，看你面子。'] },
+  insulted: { 急: ['这……也太少了吧！'], 稳: ['你这是在开玩笑。'], 傲: ['你在侮辱我的家族！'] },
+  deal: { 急: ['成交！你是好龙！'], 稳: ['合作愉快。'], 傲: ['哼，算你有眼光。'] },
+  walk: { 急: ['算了，我去别处想办法……'], 稳: ['看来谈不拢，告辞。'], 傲: ['不识货的蜥蜴！'] },
+};
+
+// ---------- MoYuFun SDK v1 ----------
+const MOYUFUN_PARENT_ORIGIN = location.hostname === 'localhost'
+  ? 'http://localhost:3000'
+  : 'https://www.moyufuns.com';
+function emitMoYuFunEvent(type) {
+  if (window.parent === window) return;
+  window.parent.postMessage({ source: 'moyufun-game', version: 1, type }, MOYUFUN_PARENT_ORIGIN);
+}
+function emitMoYuFunAchievement(key) {
+  if (window.parent === window) return;
+  window.parent.postMessage({ source: 'moyufun-game', version: 1, type: 'achievement', key }, MOYUFUN_PARENT_ORIGIN);
+}
+// 战绩：每局结算时发送一次，在成就之后、end 之前；键和上限在 game.json 的 stats 中声明。
+function emitMoYuFunStats(stats) {
+  if (window.parent === window) return;
+  window.parent.postMessage({ source: 'moyufun-game', version: 1, type: 'stats', stats }, MOYUFUN_PARENT_ORIGIN);
+}
+// 成就：每局每个 key 最多发送一次；结算时的成就必须在 end 之前发送（主站在 end 后忽略成就）。
+let roundAchievements = new Set();
+function unlockAchievement(key) {
+  if (roundAchievements.has(key)) return;
+  roundAchievements.add(key);
+  emitMoYuFunAchievement(key);
+}
+
+// ---------- 音频 ----------
+let AC = null, master = null, muted = false;
+function ensureAudio() {
+  if (!AC) {
+    try {
+      AC = new (window.AudioContext || window.webkitAudioContext)();
+      master = AC.createGain(); master.gain.value = 0.2; master.connect(AC.destination);
+    } catch (err) { AC = null; }
+  }
+  if (AC && AC.state === 'suspended') AC.resume();
+}
+function tone(f0, f1, dur, type, vol) {
+  if (!AC || muted) return;
+  const t = AC.currentTime, o = AC.createOscillator(), g = AC.createGain();
+  o.type = type || 'sine';
+  o.frequency.setValueAtTime(Math.max(1, f0), t);
+  o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t + dur);
+  g.gain.setValueAtTime(vol || 1, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  o.connect(g); g.connect(master); o.start(t); o.stop(t + dur + 0.03);
+}
+const later = (ms, fn) => setTimeout(fn, ms);
+const sfx = {
+  bell() { tone(1320, 1310, 0.6, 'sine', 0.35); tone(1980, 1970, 0.4, 'sine', 0.12); },
+  coin() { tone(1900, 1850, 0.09, 'triangle', 0.35); later(80, () => tone(2600, 2550, 0.14, 'triangle', 0.3)); },
+  thud() { tone(150, 55, 0.28, 'sine', 0.7); },
+  sting() { tone(420, 840, 0.14, 'square', 0.18); later(120, () => tone(840, 1400, 0.3, 'square', 0.18)); },
+  buzz() { tone(220, 140, 0.3, 'sawtooth', 0.22); },
+  click() { tone(900, 700, 0.05, 'triangle', 0.22); },
+  gong() { tone(110, 98, 1.8, 'sine', 0.8); tone(223, 205, 1.3, 'triangle', 0.18); },
+  win() { [523, 659, 784, 1046, 1318].forEach((f, k) => later(k * 110, () => tone(f, f, 0.35, 'triangle', 0.4))); },
+  lose() { tone(330, 110, 0.9, 'sawtooth', 0.25); },
+};
+
+// ---------- 随机数与工具 ----------
+function mulberry32(a) {
+  return function () {
+    a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+let rng = Math.random;
+const round5 = x => Math.round(x / 5) * 5;
+const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+const pick = arr => arr[Math.floor(rng() * arr.length)];
+
+// ---------- 宝物 ----------
+function findFlaws(item) {
+  const w = WORKSHOPS[item.workshop];
+  return PARTS.filter(part =>
+    part === 'mark' ? item.mark !== w.mark
+      : part === 'motto' ? item.motto !== w.motto
+        : part === 'gem' ? !MINES[item.mine].colours.includes(item.gem)
+          : !w.materials.includes(item.material));
+}
+function buildItem(spec) {
+  const item = { ...spec };
+  item.listValue = Math.round(TYPES[item.type] * MATERIALS[item.material].mult / 10) * 10;
+  item.flaws = findFlaws(item);
+  item.fake = item.flaws.length > 0;
+  return item;
+}
+function makeItem(day) {
+  const type = pick(Object.keys(TYPES)), workshop = pick(Object.keys(WORKSHOPS)), mine = pick(Object.keys(MINES));
+  const w = WORKSHOPS[workshop];
+  const spec = { type, workshop, mine, material: pick(w.materials), gem: pick(MINES[mine].colours), mark: w.mark, motto: w.motto };
+  let planted = [];
+  if (rng() < FAKE_RATE[day - 1]) {
+    const n = rng() < (day <= 3 ? 0.4 : 0.2) ? 2 : 1, pool = PARTS.slice();
+    while (planted.length < n) planted.push(pool.splice(Math.floor(rng() * pool.length), 1)[0]);
+    planted = PARTS.filter(p => planted.includes(p));
+    for (const part of planted) {
+      if (part === 'mark') spec.mark = rng() < 0.5 ? w.look : pick(Object.keys(WORKSHOPS).filter(k => k !== workshop).map(k => WORKSHOPS[k].mark));
+      else if (part === 'motto') { const [a, b] = pick(w.typos); spec.motto = w.motto.replace(a, b); }
+      else if (part === 'gem') spec.gem = pick(Object.keys(GEMS).filter(g => !MINES[mine].colours.includes(g)));
+      else spec.material = pick(Object.keys(MATERIALS).filter(m => !w.materials.includes(m)));
+    }
+  }
+  return Object.assign(buildItem(spec), { planted });
+}
+
+// ---------- 勇者 ----------
+function makeHero(day) {
+  const item = makeItem(day), r = rng();
+  const mood = item.fake ? (r < 0.5 ? '急' : r < 0.8 ? '稳' : '傲') : (r < 0.25 ? '急' : r < 0.7 ? '稳' : '傲');
+  const M = MOODS[mood], ask = round5(item.listValue * (M.lo + rng() * (M.hi - M.lo)));
+  const level = 1 + Math.floor(rng() * 10), gear = Math.floor(rng() * 4);
+  const hero = {
+    name: pick(NAMES), avatar: pick(AVATARS), level, gear, mood, item, ask, floor: round5(ask * 0.8), patience: M.patience,
+    p: clamp(0.30 + 0.06 * level + 0.07 * gear - 0.05 * (day - 1), 0.08, 0.92), line: '', face: M.face,
+    marks: [], inspected: null, confronted: false, caught: false, canAccept: false,
+  };
+  hero.line = `这是${item.workshop}工坊打的${item.type}，镶的是${item.mine}的宝石。` + pick(LINES.open[mood]);
+  return hero;
+}
+
+// ---------- 状态 ----------
+let phase = 'title', day = 0, gold = 0, hoard = [], loans = [], queue = [], hero = null, leaving = null;
+let candle = 0, enterT = 0, interest = 0, fakesCaught = 0, falseAccusations = 0, fakeInHoard = false;
+let night = null, endReason = '', offerAmt = 5, bookOpen = false, fx = [], dealsTotal = 0;
+
+const hoardValue = () => hoard.reduce((s, it) => s + (it.fake ? 0 : it.listValue), 0);
+const maxOffer = () => hero ? Math.floor(Math.min(gold, hero.item.listValue) / 5) * 5 : 0;
+
+function startRound() {
+  gold = START_GOLD; hoard = []; loans = []; queue = []; hero = null; leaving = null; night = null;
+  interest = 0; fakesCaught = 0; falseAccusations = 0; fakeInHoard = false; endReason = ''; fx = []; dealsTotal = 0;
+  roundAchievements = new Set();
+  emitMoYuFunEvent('start');
+  startDay(1);
+}
+function startDay(n) {
+  day = n;
+  if (gold < RENT) { finishRound('bust'); return; }
+  gold -= RENT;
+  fx.push({ kind: 'float', text: `−${RENT} 管理费`, color: '#ff8a7a' });
+  loans = []; leaving = null; night = null;
+  queue = Array.from({ length: HEROES_PER_DAY }, () => makeHero(day));
+  candle = DAY_SECONDS; phase = 'day';
+  nextHero();
+}
+function nextHero() {
+  hero = queue.shift();
+  offerAmt = clamp(round5(hero.item.listValue * 0.5), 5, Math.max(5, maxOffer()));
+  enterT = 1;
+}
+function heroDone() {
+  leaving = hero; hero = null; enterT = 1;
+  if (!queue.length || candle <= 0) endDay();
+  else nextHero();
+}
+
+function inspect(part) {
+  if (!hero || !PARTS.includes(part)) return;
+  hero.inspected = part;
+  sfx.click();
+}
+function toggleMark(part) {
+  if (!hero || !PARTS.includes(part)) return;
+  const on = !hero.marks.includes(part);
+  hero.marks = PARTS.filter(p => p === part ? on : hero.marks.includes(p));
+  sfx.click();
+}
+function say(event) { return pick(LINES[event][hero.mood]).replaceAll('{A}', hero.ask); }
+
+function closeDeal(amount) {
+  const h = hero;
+  gold -= amount;
+  loans.push({ hero: h, loan: amount, caught: h.caught });
+  dealsTotal++;
+  h.line = say('deal'); h.face = '😄';
+  sfx.coin();
+  fx.push({ kind: 'coins', n: Math.min(12, 3 + Math.round(amount / 40)) }, { kind: 'float', text: `−${amount}`, color: '#ffcf6b' });
+  heroDone();
+}
+function walkAway() {
+  hero.line = say('walk'); hero.face = '😠';
+  sfx.thud(); fx.push({ kind: 'shake' });
+  heroDone();
+}
+function offer(amount) {
+  if (phase !== 'day' || !hero) throw new Error('现在没有顾客');
+  if (!(amount >= 5 && amount <= Math.min(gold, hero.item.listValue))) throw new RangeError('出价超出范围: ' + amount);
+  const h = hero;
+  if (amount >= h.ask) { closeDeal(amount); return 'deal'; }
+  let result;
+  if (amount < 0.5 * h.ask) { h.patience -= 2; result = 'insulted'; }
+  else { h.patience -= 1; h.ask = Math.max(h.floor, round5((h.ask + amount) / 2)); result = 'counter'; }
+  if (h.patience <= 0) { walkAway(); return 'walked'; }
+  h.canAccept = true;
+  h.line = say(result);
+  if (result === 'insulted') { h.face = '😡'; sfx.buzz(); fx.push({ kind: 'shake' }); }
+  else { h.face = MOODS[h.mood].face; sfx.click(); }
+  return result;
+}
+function acceptCounter() {
+  if (phase !== 'day' || !hero || !hero.canAccept) throw new Error('没有可接受的还价');
+  if (hero.ask > gold) throw new RangeError('金币不够');
+  closeDeal(hero.ask);
+}
+function refuse() {
+  if (phase !== 'day' || !hero) throw new Error('现在没有顾客');
+  hero.line = '哼，不收拉倒。'; hero.face = '😒';
+  sfx.thud();
+  heroDone();
+}
+function confront() {
+  if (phase !== 'day' || !hero || hero.confronted || !hero.marks.length) throw new Error('不能指出疑点');
+  const h = hero;
+  h.confronted = true;
+  if (h.marks.some(m => h.item.flaws.includes(m))) {
+    h.ask = round5(h.ask * 0.4); h.floor = round5(h.floor * 0.4);
+    h.caught = true; h.canAccept = true;
+    fakesCaught++;
+    if (fakesCaught >= 5) unlockAchievement('sharp_eye');
+    h.line = `呃……被你看出来了。${h.ask} 金你要不要？`; h.face = '😅';
+    sfx.sting(); fx.push({ kind: 'stamp' });
+    return 'caught';
+  }
+  falseAccusations++;
+  h.patience -= 1;
+  h.ask = Math.min(h.item.listValue, round5(h.ask * 1.1));
+  if (h.patience <= 0) { walkAway(); return 'walked'; }
+  h.line = '你说我的宝贝是假的？！'; h.face = '😡';
+  sfx.buzz(); fx.push({ kind: 'shake' });
+  return 'offended';
+}
+
+function update(dt) {
+  if (phase === 'day') candle = Math.max(0, candle - dt);
+  if (enterT > 0) {
+    const before = enterT;
+    enterT = Math.max(0, enterT - dt);
+    if (hero && before > 0.5 && enterT <= 0.5) sfx.bell();
+  }
+}
+
+function endDay() {
+  phase = 'night';
+  const rows = loans.map(l => ({ ...l, survive: rng() < l.hero.p }));
+  for (const r of rows) {
+    if (r.survive) continue;
+    const it = r.hero.item;
+    hoard.push(it);
+    if (it.fake) { fakeInHoard = true; r.kind = 'fake'; continue; }
+    r.kind = 'dead';
+    unlockAchievement('first_hoard');
+    if (it.listValue >= 300) unlockAchievement('big_haul');
+  }
+  for (const r of rows) {
+    if (!r.survive) continue;
+    if (r.hero.item.fake && !r.caught) { r.kind = 'abscond'; continue; }
+    r.kind = 'repay';
+    r.repay = Math.round(r.loan * (1 + INTEREST)); r.int = Math.round(r.loan * INTEREST);
+    gold += r.repay; interest += r.int;
+  }
+  if (interest >= 500) unlockAchievement('loan_shark');
+  night = { day, rows };
+  sfx.gong();
+  return night;
+}
+function nextDay() {
+  if (phase !== 'night') return;
+  if (day >= DAYS) finishRound(hoardValue() >= HOARD_TARGET ? 'win' : 'short');
+  else startDay(day + 1);
+}
+function finishRound(reason) {
+  phase = 'over'; endReason = reason; hero = null;
+  if (reason === 'win') {
+    unlockAchievement('win');
+    if (falseAccusations === 0 && !fakeInHoard) unlockAchievement('clean_win');
+  }
+  emitMoYuFunStats({ rounds: 1, wins: reason === 'win' ? 1 : 0, fakes: fakesCaught, hoard: Math.min(hoardValue(), 20000) });
+  emitMoYuFunEvent('end');
+  if (reason === 'win') { sfx.win(); fx.push({ kind: 'confetti' }); } else sfx.lose();
+}
+
+// ---------- 画面：宝物 ----------
+const $ = id => document.getElementById(id);
+const stage = $('stage'), itemCanvas = $('item'), ictx = itemCanvas.getContext('2d');
+const loupeC = $('loupeC'), lctx = loupeC.getContext('2d');
+const FONT = '"PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif';
+
+function shade(hex, f) {
+  const n = parseInt(hex.slice(1), 16), c = [n >> 16, n >> 8 & 255, n & 255].map(v => clamp(Math.round(f < 0 ? v * (1 + f) : v + (255 - v) * f), 0, 255));
+  return `rgb(${c.join(',')})`;
+}
+function silhouette(c, type) {
+  c.beginPath();
+  if (type === '戒指') { c.arc(180, 200, 103, 0, Math.PI * 2); c.arc(180, 200, 77, 0, Math.PI * 2, true); }
+  else if (type === '护符') {
+    c.moveTo(180, 84); c.bezierCurveTo(262, 150, 285, 262, 180, 332); c.bezierCurveTo(75, 262, 98, 150, 180, 84);
+  } else if (type === '酒杯') {
+    c.ellipse(180, 58, 108, 142, 0, 0, Math.PI); c.closePath();
+    c.rect(168, 196, 24, 108); c.ellipse(180, 318, 74, 20, 0, 0, Math.PI * 2);
+  } else if (type === '长剑') {
+    c.moveTo(180, 14); c.lineTo(204, 62); c.lineTo(204, 251); c.lineTo(156, 251); c.lineTo(156, 62); c.closePath();
+    c.roundRect(94, 251, 172, 22, 9); c.rect(170, 272, 20, 46); c.moveTo(201, 335); c.arc(180, 335, 21, 0, Math.PI * 2);
+  } else if (type === '圆盾') c.arc(180, 180, 140, 0, Math.PI * 2);
+  else {
+    c.moveTo(58, 292); c.lineTo(58, 150); c.lineTo(96, 230); c.lineTo(120, 126); c.lineTo(150, 230);
+    c.lineTo(180, 110); c.lineTo(210, 230); c.lineTo(240, 126); c.lineTo(264, 230); c.lineTo(302, 150); c.lineTo(302, 292); c.closePath();
+  }
+}
+function drawItem(c, item) {
+  c.setTransform(2, 0, 0, 2, 0, 0);
+  c.clearRect(0, 0, 360, 360);
+  if (!item) return;
+  const mat = MATERIALS[item.material].color, h = HOTS[item.type];
+  if (item.type === '护符') {   // 链子
+    c.strokeStyle = '#8f8a80'; c.lineWidth = 3;
+    for (let y = 4; y < 86; y += 12) { c.beginPath(); c.ellipse(180, y, 4, 6, 0, 0, Math.PI * 2); c.stroke(); }
+  }
+  c.save();
+  c.shadowColor = 'rgba(0,0,0,.45)'; c.shadowBlur = 18; c.shadowOffsetY = 8;
+  silhouette(c, item.type); c.fillStyle = mat; c.fill();
+  c.restore();
+  c.save();
+  silhouette(c, item.type); c.clip();
+  const g = c.createLinearGradient(50, 20, 310, 340);
+  g.addColorStop(0, 'rgba(255,255,255,.55)'); g.addColorStop(0.35, 'rgba(255,255,255,0)');
+  g.addColorStop(0.62, 'rgba(255,255,255,.16)'); g.addColorStop(0.7, 'rgba(255,255,255,0)'); g.addColorStop(1, 'rgba(0,0,0,.25)');
+  c.fillStyle = g; c.fillRect(0, 0, 360, 360);
+  c.restore();
+  silhouette(c, item.type); c.strokeStyle = shade(mat, -0.45); c.lineWidth = 3; c.stroke();
+  if (item.type === '圆盾') { c.beginPath(); c.arc(180, 180, 118, 0, Math.PI * 2); c.lineWidth = 2; c.strokeStyle = shade(mat, -0.3); c.stroke(); }
+  if (item.type === '王冠') for (const [x, y] of [[58, 150], [120, 126], [240, 126], [302, 150]]) {
+    c.beginPath(); c.arc(x, y, 7, 0, Math.PI * 2); c.fillStyle = shade(mat, 0.25); c.fill(); c.stroke();
+  }
+  // 宝石
+  const [gx, gy] = h.gem, gc = GEMS[item.gem];
+  c.beginPath(); c.arc(gx, gy, 16, 0, Math.PI * 2); c.fillStyle = gc; c.fill();
+  c.lineWidth = 2; c.strokeStyle = shade(gc, -0.5); c.stroke();
+  c.beginPath();
+  for (let k = 0; k < 8; k++) { const a = k * Math.PI / 4; c.lineTo(gx + Math.cos(a) * 9, gy + Math.sin(a) * 9); }
+  c.closePath(); c.fillStyle = shade(gc, 0.25); c.fill();
+  c.lineWidth = 1; c.strokeStyle = shade(gc, -0.25);
+  for (let k = 0; k < 8; k++) { const a = k * Math.PI / 4; c.moveTo(gx + Math.cos(a) * 9, gy + Math.sin(a) * 9); c.lineTo(gx + Math.cos(a) * 16, gy + Math.sin(a) * 16); }
+  c.stroke();
+  c.beginPath(); c.ellipse(gx - 5, gy - 6, 4, 2.5, -0.6, 0, Math.PI * 2); c.fillStyle = 'rgba(255,255,255,.85)'; c.fill();
+  // 印记
+  const [mx, my] = h.mark;
+  c.fillStyle = 'rgba(255,247,227,.92)'; c.fillRect(mx - 11, my - 11, 22, 22);
+  c.strokeStyle = '#8b1a1a'; c.lineWidth = 1.5; c.strokeRect(mx - 10, my - 10, 20, 20);
+  c.font = `800 14px ${FONT}`; c.fillStyle = '#8b1a1a'; c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.fillText(item.mark, mx, my + 1);
+  // 铭文：8px，不用放大镜看不清
+  const [tx, ty] = h.motto;
+  c.font = `700 8px ${FONT}`; c.fillStyle = item.material === '黑铁' ? 'rgba(240,232,215,.95)' : 'rgba(40,24,12,.9)';
+  c.fillText(item.motto, tx, ty);
+}
+function drawLoupe(item, part) {
+  lctx.setTransform(1, 0, 0, 1, 0, 0);
+  lctx.clearRect(0, 0, 320, 320);
+  if (!item || !part) return;
+  const [x, y] = HOTS[item.type][part], r = 146 / 2.5 / 2;   // 镜片内径 146px，放大 2.5 倍
+  lctx.fillStyle = '#2a1a24'; lctx.fillRect(0, 0, 320, 320);
+  lctx.drawImage(itemCanvas, (x - r) * 2, (y - r) * 2, r * 4, r * 4, 0, 0, 320, 320);
+}
+function partLabel(item, part) {
+  if (part === 'mark') return `印记：「${item.mark}」`;
+  if (part === 'motto') return `铭文：${item.motto}`;
+  if (part === 'gem') return `宝石：${item.gem}色<i class="sw" style="background:${GEMS[item.gem]}"></i>`;
+  return `材质：${item.material}<i class="sw" style="background:${MATERIALS[item.material].color}"></i>`;
+}
+
+// ---------- 画面：手册 ----------
+const swatch = c => `<i style="background:${c}"></i>`;
+const MANUAL = {
+  工坊: '<table><tr><th>工坊</th><th>印记</th><th>铭文</th><th>材质</th></tr>' +
+    Object.entries(WORKSHOPS).map(([k, w]) => `<tr><td><b>${k}</b></td><td><span class="seal">${w.mark}</span></td><td class="motto">${w.motto}</td><td>${
+      w.materials.map(m => `<span class="chip">${swatch(MATERIALS[m].color)}${m}</span>`).join('<br>')}</td></tr>`).join('') +
+    '</table><div class="note">真品：印记、铭文一字不差，材质是本工坊用料之一。勇者说的工坊、矿脉都是真的。</div>',
+  矿脉: '<table><tr><th>矿脉</th><th>宝石颜色</th></tr>' +
+    Object.entries(MINES).map(([k, m]) => `<tr><td><b>${k}</b></td><td>${m.colours.map(g => `<span class="chip">${swatch(GEMS[g])}${g}色</span>`).join('')}</td></tr>`).join('') +
+    '</table><div class="note">放大镜会写出宝石的颜色名，不必只凭眼睛分辨。</div>',
+  材质: '<table><tr><th>材质</th><th>行情倍数</th></tr>' +
+    Object.entries(MATERIALS).map(([k, m]) => `<tr><td><span class="chip">${swatch(m.color)}${k}</span></td><td>×${m.mult}</td></tr>`).join('') +
+    '</table><table style="margin-top:14px"><tr><th>宝物</th><th>底价</th></tr>' +
+    Object.entries(TYPES).map(([k, v]) => `<tr><td>${k}</td><td>${v} 金</td></tr>`).join('') +
+    '</table><div class="note">行情 = 底价 × 材质倍数。</div>',
+  冒险者: '<ul class="lines">' + ['Lv1–3：多半回不来', 'Lv4–7：五五开', 'Lv8–10：大多能回来', '每件装备多一分把握', '地牢一天比一天深', '没被识破的骗子，活着也不会回来还钱']
+    .map(s => `<li>${s}</li>`).join('') + '</ul>',
+};
+let manualTab = '工坊';
+for (const name of Object.keys(MANUAL)) {
+  const b = document.createElement('button');
+  b.className = 'tab'; b.textContent = name; b.id = 'tab_' + name;
+  b.addEventListener('click', () => { manualTab = name; sfx.click(); });
+  $('tabs').appendChild(b);
+}
+
+// ---------- 画面：渲染 ----------
+const shown = () => enterT > 0.5 ? leaving : hero;
+const canAct = () => phase === 'day' && !!hero && enterT <= 0;
+function setText(el, s) { if (el.textContent !== s) el.textContent = s; }
+function setHTML(el, s) { if (el._html !== s) { el._html = s; el.innerHTML = s; } }
+let drawnItem = null, drawnLoupe = '', shownGold = null, shownHoard = null, nightKey = null, shownTab = '';
+
+function render() {
+  for (const f of fx.splice(0)) playFx(f);
+  for (const [id, on] of [['title', phase === 'title'], ['night', phase === 'night'], ['end', phase === 'over'], ['manual', bookOpen && phase !== 'title']])
+    $(id).classList.toggle('show', on);
+
+  // 顶栏
+  setText($('day'), day ? `第 ${day} / ${DAYS} 天` : '');
+  $('candleFill').style.width = (phase === 'day' ? candle / DAY_SECONDS * 100 : 0) + '%';
+  $('candleFill').classList.toggle('low', candle <= 15);
+  $('flame').style.visibility = phase === 'day' && candle > 0 ? 'visible' : 'hidden';
+  setText($('candleTxt'), phase === 'day' && candle <= 0 ? '打烊' : '');
+  setText($('gold'), `💰 ${gold}`);
+  setText($('hoard'), `💎 ${hoardValue()} / ${HOARD_TARGET}`);
+  if (shownGold !== null && gold !== shownGold) pulse($('gold'));
+  if (shownHoard !== null && hoardValue() !== shownHoard) pulse($('hoard'));
+  shownGold = gold; shownHoard = hoardValue();
+  setText($('muteBtn'), muted ? '🔇' : '🔊');
+
+  // 勇者与宝物：随人一起滑入滑出
+  const s = shown();
+  const x = enterT > 0.5 ? (leaving ? 560 * Math.max(0, (0.75 - enterT) / 0.25) ** 2 : -560) : -560 * (enterT / 0.5) ** 2;
+  for (const id of ['heroBox', 'treasure']) {
+    $(id).style.transform = `translateX(${Math.round(x)}px)`;
+    $(id).style.visibility = s ? 'visible' : 'hidden';
+  }
+  if (s) {
+    setText($('avatar'), s.avatar);
+    setText($('face'), s.face);
+    setText($('heroName'), `${s.name} Lv.${s.level}`);
+    setText($('gear'), GEAR.slice(0, s.gear).join(''));
+    setText($('bubble'), s.line);
+    setText($('claim'), `${s.item.type} · ${s.item.workshop}工坊 · ${s.item.mine}宝石 · 行情 ${s.item.listValue} 金`);
+    $('stamp').classList.toggle('show', s.caught);
+    const hs = HOTS[s.item.type];
+    for (const p of PARTS) {
+      const hot = $('hot_' + p);
+      hot.style.left = hs[p][0] + 'px'; hot.style.top = hs[p][1] + 'px';
+      for (const el of [hot, $('part_' + p)]) {
+        el.classList.toggle('on', s.inspected === p);
+        el.classList.toggle('marked', s.marks.includes(p));
+      }
+    }
+  }
+  if (drawnItem !== (s && s.item)) { drawnItem = s && s.item; drawItem(ictx, drawnItem); drawnLoupe = null; }
+  const lk = s && s.inspected ? s.inspected : '';
+  if (drawnLoupe !== lk) { drawnLoupe = lk; drawLoupe(s && s.item, lk); }
+  $('loupeHint').style.display = lk ? 'none' : 'flex';
+  setHTML($('loupeLabel'), lk ? partLabel(s.item, lk) : '');
+  $('markBtn').style.visibility = lk ? 'visible' : 'hidden';
+  const marked = lk && s.marks.includes(lk);
+  setText($('markBtn'), marked ? '取消疑点' : '🚩 标为疑点');
+  $('markBtn').classList.toggle('on', !!marked);
+
+  // 交易
+  const act = canAct(), mo = maxOffer();
+  $('slider').max = String(Math.max(5, mo));
+  if ($('slider').value !== String(offerAmt)) $('slider').value = String(offerAmt);
+  setText($('offerNum'), String(offerAmt));
+  for (const id of ['slider', 'minus', 'plus', 'offerBtn']) $(id).disabled = !act || mo < 5;
+  $('minus').disabled ||= offerAmt <= 5;
+  $('plus').disabled ||= offerAmt >= mo;
+  const acc = act && hero.canAccept;
+  $('acceptBtn').classList.toggle('hide', !acc);
+  $('acceptBtn').disabled = !acc || hero.ask > gold;
+  if (acc) setText($('acceptBtn'), `接受 ${hero.ask} 金`);
+  setText($('confrontBtn'), `指出疑点（${hero ? hero.marks.length : 0}）`);
+  $('confrontBtn').disabled = !act || !hero.marks.length || hero.confronted;
+  $('refuseBtn').disabled = !act;
+  setText($('queueInfo'), phase !== 'day' ? '' : candle <= 0
+    ? `蜡烛燃尽：这是最后一位顾客 · 今日已押 ${loans.length} 件`
+    : `今日已押 ${loans.length} 件 · 剩余顾客 ${queue.length}`);
+
+  // 手册
+  if (shownTab !== manualTab) {
+    shownTab = manualTab;
+    setHTML($('manBody'), MANUAL[manualTab]);
+    for (const name of Object.keys(MANUAL)) $('tab_' + name).classList.toggle('on', name === manualTab);
+  }
+
+  // 夜晚
+  if (phase === 'night' && nightKey !== night) {
+    nightKey = night;
+    setText($('nightTitle'), `第 ${night.day} 天 · 夜`);
+    const rows = night.rows.map(r => {
+      const h = r.hero, it = h.item;
+      if (r.kind === 'repay') return ['good', `${h.avatar} ${h.name} 回来了，还款 ${r.repay} 金（利息 ${r.int}）`];
+      if (r.kind === 'abscond') return ['bad', `🏃 ${h.name} 活着出来了，却带着赝品溜了！${r.loan} 金打了水漂`];
+      if (r.kind === 'dead') return ['dead', `💀 ${h.name} 没能回来。${it.type}入库，价值 ${it.listValue} 金`];
+      return ['bad', `💀 ${h.name} 没能回来。${it.type}入库……是赝品，一文不值`];
+    });
+    if (!rows.length) rows.push(['', '今晚没有放出去的贷款。']);
+    setHTML($('rows'), rows.map(([c, t], k) => `<div class="row ${c}" style="animation-delay:${(1.1 + k * 0.35).toFixed(2)}s">${t}</div>`).join(''));
+    const after = 1.1 + rows.length * 0.35;
+    $('nightSum').style.animationDelay = after + 's';
+    setText($('nightSum'), `💰 ${gold} · 💎 ${hoardValue()} / ${HOARD_TARGET}`);
+    setText($('dawnBtn'), night.day >= DAYS ? '结算' : '天亮了');
+    night.rows.forEach((r, k) => later((1.1 + k * 0.35) * 1000, r.kind === 'repay' ? sfx.coin : r.kind === 'dead' ? sfx.click : sfx.thud));
+  }
+
+  // 结局
+  if (phase === 'over') {
+    const v = hoardValue();
+    const [icon, title, text] = endReason === 'win' ? ['🐉', '富可敌国', `七天里收下 ${hoard.length} 件宝物，总值 ${v} 金。`]
+      : endReason === 'bust' ? ['🏚️', '关门大吉', `金币付不起地牢管理费（${RENT} 金），当铺开不下去了。`]
+        : ['🥀', '龙心不足', `宝库只有 ${v} / ${HOARD_TARGET} 金。`];
+    setText($('endIcon'), icon); setText($('endTitle'), title); setText($('endText'), text);
+    setText($('endStats'), `识破赝品 ${fakesCaught} 件 · 放贷 ${dealsTotal} 笔 · 收取利息 ${interest} 金`);
+  }
+}
+
+// #top 在舞台左上角，offsetLeft 就是舞台坐标。
+function goldPos() { return [$('gold').offsetLeft + 20, 18]; }
+function pulse(el) { el.animate([{ transform: 'scale(1.35)' }, { transform: 'scale(1)' }], { duration: 350, easing: 'ease-out' }); }
+function particle(html, cls, x, y) {
+  const el = document.createElement('div');
+  el.className = cls; el.innerHTML = html; el.style.left = x + 'px'; el.style.top = y + 'px';
+  $('fx').appendChild(el);
+  return el;
+}
+function playFx(f) {
+  if (f.kind === 'shake') {
+    $('heroBox').animate([0, -12, 10, -8, 6, 0].map(d => ({ marginLeft: d + 'px' })), { duration: 380 });
+  } else if (f.kind === 'stamp') {
+    $('stamp').animate([{ transform: 'rotate(-14deg) scale(2.6)', opacity: 0 }, { transform: 'rotate(-14deg) scale(.92)', opacity: 1, offset: 0.7 },
+      { transform: 'rotate(-14deg) scale(1)', opacity: 0.92 }], { duration: 320, easing: 'ease-in' });
+    $('treasure').animate([{ marginTop: '6px' }, { marginTop: '0px' }], { duration: 200, delay: 220 });
+  } else if (f.kind === 'float') {
+    const [gx, gy] = goldPos(), el = particle(f.text, 'float', gx - 20, gy + 26);
+    el.style.color = f.color;
+    el.animate([{ transform: 'translateY(0)', opacity: 1 }, { transform: 'translateY(-40px)', opacity: 0 }], { duration: 1100, easing: 'ease-out' })
+      .onfinish = () => el.remove();
+  } else if (f.kind === 'coins') {
+    for (let k = 0; k < f.n; k++) {
+      const el = particle('🪙', 'p', 0, 0);
+      const [ax, ay] = goldPos(), [bx, by] = [258, 400];   // 从钱袋飞向宝物
+      const mx = (ax + bx) / 2 + (Math.random() - 0.5) * 160, my = Math.min(ay, by) - 60 - Math.random() * 80;
+      el.animate([{ transform: `translate(${ax}px,${ay}px) scale(.6)`, opacity: 0 },
+        { transform: `translate(${mx}px,${my}px) scale(1.1)`, opacity: 1, offset: 0.45 },
+        { transform: `translate(${bx}px,${by}px) scale(.5)`, opacity: 0.2 }],
+      { duration: 650 + Math.random() * 250, delay: k * 35, easing: 'ease-in-out', fill: 'backwards' }).onfinish = () => el.remove();
+    }
+  } else if (f.kind === 'confetti') {
+    for (let k = 0; k < 40; k++) {
+      const el = particle(['🪙', '💎', '✨', '👑'][k % 4], 'p', 0, 0), x = 270 + (Math.random() - 0.5) * 80;
+      el.animate([{ transform: `translate(${x}px,420px) scale(.4)` },
+        { transform: `translate(${x + (Math.random() - 0.5) * 520}px,${Math.random() * 300}px) scale(1.2) rotate(${Math.random() * 360}deg)`, offset: 0.4 },
+        { transform: `translate(${x + (Math.random() - 0.5) * 600}px,980px) rotate(${Math.random() * 720}deg)` }],
+      { duration: 2200 + Math.random() * 900, delay: k * 25, easing: 'cubic-bezier(.2,.6,.4,1)' }).onfinish = () => el.remove();
+    }
+  }
+}
+
+// ---------- 布局 ----------
+// 用 clientWidth 而不是 innerWidth：手机上内容一旦过宽，innerWidth 会被撑大，越撑越大。
+function resize() {
+  const cw = document.documentElement.clientWidth, ch = document.documentElement.clientHeight;
+  const s = Math.min(cw / W, ch / H);
+  stage.style.transform = `translate(${(cw - W * s) / 2}px, ${(ch - H * s) / 2}px) scale(${s})`;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ---------- 输入 ----------
+function setOffer(v) { if (hero) offerAmt = clamp(round5(v), 5, Math.max(5, maxOffer())); }
+function act(fn) { return (...a) => { ensureAudio(); if (canAct() && !bookOpen) fn(...a); }; }
+const doOffer = act(() => { if (maxOffer() >= 5) offer(offerAmt); });
+const doAccept = act(() => { if (hero.canAccept && hero.ask <= gold) acceptCounter(); });
+const doConfront = act(() => { if (hero.marks.length && !hero.confronted) confront(); });
+const doInspect = act(part => inspect(part));
+const doMark = act(() => { if (hero.inspected) toggleMark(hero.inspected); });
+function toggleBook() { if (phase === 'title') return; bookOpen = !bookOpen; sfx.click(); }
+
+for (const p of PARTS) {
+  $('hot_' + p).addEventListener('click', () => doInspect(p));
+  $('part_' + p).addEventListener('click', () => doInspect(p));
+}
+$('markBtn').addEventListener('click', doMark);
+$('slider').addEventListener('input', e => setOffer(Number(e.target.value)));
+$('minus').addEventListener('click', act(() => setOffer(offerAmt - 5)));
+$('plus').addEventListener('click', act(() => setOffer(offerAmt + 5)));
+$('offerBtn').addEventListener('click', doOffer);
+$('acceptBtn').addEventListener('click', doAccept);
+$('confrontBtn').addEventListener('click', doConfront);
+$('refuseBtn').addEventListener('click', act(() => refuse()));
+$('bookBtn').addEventListener('click', toggleBook);
+$('closeBook').addEventListener('click', toggleBook);
+$('muteBtn').addEventListener('click', () => { muted = !muted; });
+$('openBtn').addEventListener('click', () => { ensureAudio(); startRound(); });
+$('againBtn').addEventListener('click', () => { ensureAudio(); bookOpen = false; startRound(); });
+// 入夜后等上一位顾客走完（enterT）再接受「天亮了」，免得连按 Enter 跳过夜晚结算。
+const dawn = () => { ensureAudio(); if (enterT <= 0) nextDay(); };
+$('dawnBtn').addEventListener('click', dawn);
+
+window.addEventListener('keydown', e => {
+  const k = e.key;
+  if (k === 'm' || k === 'M') { muted = !muted; return; }
+  if (k === 'b' || k === 'B') { toggleBook(); return; }
+  if (k === 'Escape' && bookOpen) { toggleBook(); return; }
+  if (bookOpen) return;
+  if (k >= '1' && k <= '4') doInspect(PARTS[k - 1]);
+  else if (k === 'x' || k === 'X') doMark();
+  else if (k === 'ArrowLeft' || k === 'ArrowRight') {
+    e.preventDefault();
+    if (canAct()) setOffer(offerAmt + (k === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? 50 : 5));
+  } else if (k === 'Enter') {
+    e.preventDefault();   // 不让 Enter 再触发聚焦中的按钮
+    if (phase === 'title') { ensureAudio(); startRound(); }
+    else if (phase === 'night') dawn();
+    else if (phase === 'over') startRound();
+    else doOffer();
+  }
+});
+
+let lastT = 0;
+function loop(now) {
+  const dt = Math.min(0.05, (now - lastT) / 1000 || 0);
+  lastT = now;
+  update(dt); render();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+// 主站在水合后才监听消息，单发的 ready 可能丢；重复的 ready 主站会忽略。start 在点「开张」时才发。
+emitMoYuFunEvent('ready');
+for (const ms of [500, 2000, 5000]) setTimeout(() => emitMoYuFunEvent('ready'), ms);
+</script>
+</body>
+</html>
