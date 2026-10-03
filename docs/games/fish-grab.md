@@ -1,4 +1,4 @@
-# 抢鱼 · 3v3 夺鱼战 (`fish-grab`)
+# 夺鱼 (`fish-grab`)
 
 **Status:** Implemented locally 2026-09-30. Milestones: M1 ☑ · M2 ☑ · M3 ☑ (local; see notes). **Production publish pending** (`pnpm game publish fish-grab v1`, run by the owner).
 
@@ -41,7 +41,7 @@ games/fish-grab/
 ```json
 {
   "slug": "fish-grab",
-  "name": "抢鱼 · 3v3 夺鱼战",
+  "name": "夺鱼",
   "shortDescription": "与两名 AI 队友联手，把金鱼抢回自家。",
   "description": "青鱼门与赤鲤帮三对三，争夺场地中央的金鱼。持鱼者移速变慢且无法使用右槽斩击，一旦受击就会掉鱼。把鱼带回己方阵地得一分，先得五分的一方获胜。",
   "tags": ["动作", "团队", "单人", "键鼠"],

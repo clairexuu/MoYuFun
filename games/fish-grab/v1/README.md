@@ -1,4 +1,4 @@
-# 抢鱼 · 3v3 夺鱼战
+# 夺鱼
 
 单文件 3v3 夺鱼小游戏（HTML5 Canvas + 原生 JS，零依赖、零构建），斩击系统沿用「乱刃」v4。设计见 `docs/design/fish-grab.md`。
 
