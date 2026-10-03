@@ -1,0 +1,820 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>玄武农场</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #8fd16a;
+    user-select: none; -webkit-user-select: none; }
+  #game { position: absolute; inset: 0; display: block; touch-action: none; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<script>
+'use strict';
+/* 玄武农场：在神龟背上种田，看准前方地形再播种。设计文档：docs/games/turtle-farm.md */
+
+// ---------- 常量 ----------
+const W = 480, H = 800, DAYS = 30, DAY_SECONDS = 12, TARGET = 800, TYCOON = 1500, START_COINS = 20;
+const MARKET_DAYS = [6, 12, 18, 24, 30];
+const LANDS = ['grass', 'rain', 'desert', 'snow'];
+const FONT = '"PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif';
+const EMOJI = '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif';
+const BIOMES = {
+  grass: { name: '草原', emoji: '🌾', ground: '#8fd16a', deco: ['🌼', '🌱'] },
+  rain: { name: '雨林', emoji: '🌴', ground: '#2f8f5b', deco: ['🌿', '🦜'] },
+  desert: { name: '沙漠', emoji: '🏜️', ground: '#e9c46a', deco: ['🪨', '🦂'] },
+  snow: { name: '雪原', emoji: '❄️', ground: '#e8f1f8', deco: ['⛄', '🐧'] },
+  market: { name: '集市', emoji: '🏮', ground: '#f4a261', deco: ['🎪', '🏮'] },
+};
+const CROPS = [
+  { key: 'radish', name: '萝卜', emoji: '🥕', cost: 2, days: 2, sell: 5, likes: ['snow'], hates: ['desert'], tough: 1 },
+  { key: 'corn', name: '玉米', emoji: '🌽', cost: 4, days: 3, sell: 10, likes: ['grass'], hates: ['snow'], tough: 1 },
+  { key: 'mushroom', name: '蘑菇', emoji: '🍄', cost: 5, days: 3, sell: 13, likes: ['rain'], hates: ['grass', 'desert'], tough: 1 },
+  { key: 'cactus', name: '仙人掌果', emoji: '🌵', cost: 3, days: 4, sell: 9, likes: ['desert'], hates: ['rain'], tough: 2 },
+  { key: 'melon', name: '西瓜', emoji: '🍉', cost: 6, days: 4, sell: 18, likes: ['desert'], hates: ['rain', 'snow'], tough: 1 },
+  { key: 'banana', name: '香蕉', emoji: '🍌', cost: 8, days: 5, sell: 26, likes: ['rain'], hates: ['desert', 'snow'], tough: 1 },
+  { key: 'icegrape', name: '冰葡萄', emoji: '🍇', cost: 10, days: 5, sell: 34, likes: ['snow'], hates: ['grass', 'rain', 'desert'], tough: 0 },
+  { key: 'potato', name: '土豆', emoji: '🥔', cost: 3, days: 4, sell: 7, likes: [], hates: [], tough: 99 },
+];
+const REL_COLOR = ['#e53935', '#9e9e9e', '#4caf50'], REL_NAME = ['忌', '平', '喜'];
+// 布局（逻辑坐标 480 × 800）
+const PLOT = 80, GAP = 8, FX = 68, FY = 188, TCX = 240, TCY = 360;
+const INK = '#3d3326', MUTED = '#8a7a64', CREAM = '#fffaf0';
+
+// ---------- MoYuFun SDK v1 ----------
+const MOYUFUN_PARENT_ORIGIN = location.hostname === 'localhost'
+  ? 'http://localhost:3000'
+  : 'https://www.moyufuns.com';
+function emitMoYuFunEvent(type) {
+  if (window.parent === window) return;
+  window.parent.postMessage({ source: 'moyufun-game', version: 1, type }, MOYUFUN_PARENT_ORIGIN);
+}
+function emitMoYuFunAchievement(key) {
+  if (window.parent === window) return;
+  window.parent.postMessage({ source: 'moyufun-game', version: 1, type: 'achievement', key }, MOYUFUN_PARENT_ORIGIN);
+}
+// 战绩：每局结算时发送一次，在成就之后、end 之前；键和上限在 game.json 的 stats 中声明。
+function emitMoYuFunStats(stats) {
+  if (window.parent === window) return;
+  window.parent.postMessage({ source: 'moyufun-game', version: 1, type: 'stats', stats }, MOYUFUN_PARENT_ORIGIN);
+}
+// 成就：每局每个 key 最多发送一次；结算时的成就必须在 end 之前发送（主站在 end 后忽略成就）。
+let roundAchievements = new Set();
+function unlockAchievement(key) {
+  if (roundAchievements.has(key)) return;
+  roundAchievements.add(key);
+  emitMoYuFunAchievement(key);
+}
+
+// ---------- 音频 ----------
+let AC = null, master = null, muted = false;
+function ensureAudio() {
+  if (!AC) {
+    try {
+      AC = new (window.AudioContext || window.webkitAudioContext)();
+      master = AC.createGain(); master.gain.value = 0.2; master.connect(AC.destination);
+    } catch (err) { AC = null; }
+  }
+  if (AC && AC.state === 'suspended') AC.resume();
+}
+function tone(f0, f1, dur, type, vol, delay) {
+  if (!AC || muted) return;
+  const t = AC.currentTime + (delay || 0), o = AC.createOscillator(), g = AC.createGain();
+  o.type = type || 'sine';
+  o.frequency.setValueAtTime(Math.max(1, f0), t);
+  o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t + dur);
+  g.gain.setValueAtTime(0.001, AC.currentTime);
+  g.gain.setValueAtTime(vol || 1, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  o.connect(g); g.connect(master); o.start(t); o.stop(t + dur + 0.03);
+}
+const sfx = {
+  plant: () => tone(240, 150, 0.09, 'triangle', 0.5),
+  harvest: () => tone(480, 1100, 0.13, 'sine', 0.55),
+  sell: () => { tone(988, 988, 0.07, 'square', 0.22); tone(1319, 1319, 0.16, 'square', 0.22, 0.08); },
+  wither: () => tone(420, 110, 0.45, 'sawtooth', 0.22),
+  market: () => { tone(392, 392, 0.22, 'triangle', 0.45); tone(523, 523, 0.38, 'triangle', 0.45, 0.22); },
+  step: () => tone(120, 70, 0.14, 'sine', 0.45),
+  click: () => tone(700, 600, 0.04, 'triangle', 0.25),
+  nope: () => tone(190, 150, 0.12, 'square', 0.18),
+  win: () => [523, 659, 784, 1046].forEach((f, k) => tone(f, f, 0.25, 'triangle', 0.45, k * 0.12)),
+  lose: () => tone(330, 110, 0.7, 'triangle', 0.4),
+};
+
+// ---------- 随机与航线 ----------
+function mulberry32(a) {
+  return function () {
+    a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+let rng = Math.random;   // 测试里换成 mulberry32(seed)
+
+// 地形段长 2–3 天，第一段是草原，相邻两段不同；集市固定在 6/12/18/24/30 天。
+function genRoute(rnd) {
+  const route = [null];
+  let prev = null;
+  while (route.length <= DAYS) {
+    let b = 'grass';
+    if (prev) do b = LANDS[Math.floor(rnd() * 4)]; while (b === prev);
+    const len = 2 + Math.floor(rnd() * 2);
+    for (let i = 0; i < len && route.length <= DAYS; i++) route.push(b);
+    prev = b;
+  }
+  const markets = {};
+  for (const d of MARKET_DAYS) {
+    route[d] = 'market';
+    const hot = Math.floor(rnd() * 8);
+    let cold;
+    do cold = Math.floor(rnd() * 8); while (cold === hot);
+    markets[d] = { hot, cold };
+  }
+  return { route, markets };
+}
+
+// ---------- 状态与规则 ----------
+function newState(phase) {
+  return {
+    phase, day: 1, dayT: 0, speed: 1, paused: false, coins: START_COINS, route: [], markets: {},
+    selected: 0, plots: Array(16).fill(null), barn: Array(8).fill(0), harvests: 0, lost: 0, soldHotToday: 0,
+  };
+}
+let state = newState('title');
+
+function relation(c, b) {
+  if (b === 'market') return 1;
+  const C = CROPS[c];
+  return C.likes.includes(b) ? 2 : C.hates.includes(b) ? 0 : 1;
+}
+function price(c, d) {
+  const m = state.markets[d], sell = CROPS[c].sell;
+  if (!m) return sell;
+  return m.hot === c ? sell * 2 : m.cold === c ? Math.floor(sell / 2) : sell;
+}
+function isMarketDay() { return state.route[state.day] === 'market'; }
+function hintText(c) {
+  const C = CROPS[c], names = list => list.map(b => BIOMES[b].name).join(' ');
+  let s = `${C.emoji} ${C.name} · ${C.cost} 金 · ${C.days} 天`;
+  if (!C.likes.length && !C.hates.length) return s + ' · 不挑地形';
+  if (C.likes.length) s += ' · 喜 ' + names(C.likes);
+  if (C.hates.length) s += ' · 忌 ' + names(C.hates);
+  return s + ` · 耐 ${C.tough} 天`;
+}
+
+function plant(i, c) {
+  if (state.phase !== 'play' || state.plots[i]) return false;
+  const C = CROPS[c];
+  if (state.coins < C.cost) { toast('金币不够'); coinFlash = 0.6; sfx.nope(); return false; }
+  state.coins -= C.cost;
+  state.plots[i] = { crop: c, pts: 0, harm: 0, ripe: false, age: 0, allLiked: true, withered: false };
+  plotVis[i] = 0; plotPop[i] = 1;
+  const p = plotCenter(i);
+  burst(p.x, p.y + 22, 6, '#6b4429', 70);
+  sfx.plant();
+  return true;
+}
+function harvest(i) {
+  const p = state.plots[i];
+  if (state.phase !== 'play' || !p) return false;
+  if (p.withered) { state.plots[i] = null; const q = plotCenter(i); burst(q.x, q.y, 5, '#a1887f', 60); return false; }
+  if (!p.ripe) return false;
+  state.barn[p.crop]++; state.harvests++; state.plots[i] = null;
+  if (p.allLiked) unlockAchievement('thrive');
+  const q = plotCenter(i), b = barnCell(p.crop);
+  burst(q.x, q.y, 10, '#ffd54f', 140);
+  flyers.push({ emoji: CROPS[p.crop].emoji, x0: q.x, y0: q.y, x1: b.x + 27, y1: b.y + 16, t: 0, dur: 0.55, size: 40, done: () => { barnBump[p.crop] = 1; } });
+  sfx.harvest();
+  return true;
+}
+function sell(c) {
+  if (state.phase !== 'play' || !isMarketDay()) return 0;
+  const n = state.barn[c];
+  if (!n) return 0;
+  const gained = price(c, state.day) * n;
+  state.coins += gained; state.barn[c] = 0;
+  if (state.markets[state.day].hot === c) {
+    state.soldHotToday += n;
+    if (state.soldHotToday >= 5) unlockAchievement('hot_seller');
+  }
+  const b = barnCell(c);
+  for (let k = 0; k < Math.min(6, n); k++)
+    flyers.push({ emoji: '🪙', x0: b.x + 27, y0: b.y + 20, x1: 150, y1: 29, t: -k * 0.06, dur: 0.5, size: 18, done: () => { coinBump = 1; } });
+  floats.push({ text: `+${gained}`, x: 210, y: 62, t: 0, color: '#2e7d32' });
+  sfx.sell();
+  return gained;
+}
+function sellAll() {
+  let gained = 0;
+  for (let c = 0; c < CROPS.length; c++) gained += sell(c);
+  return gained;
+}
+
+function endOfDay() {
+  const d = state.day, b = state.route[d], plots = state.plots, rotted = {}, withered = {};
+  plots.forEach((p, i) => { if (p && p.withered) plots[i] = null; });
+  plots.forEach((p, i) => {
+    if (!p) return;
+    const C = CROPS[p.crop], q = plotCenter(i);
+    if (p.ripe) {
+      if (++p.age >= 3) {
+        state.lost++; plots[i] = null; rotted[C.name] = (rotted[C.name] || 0) + 1;
+        burst(q.x, q.y, 8, '#795548', 70);
+      }
+      return;
+    }
+    const r = relation(p.crop, b);
+    if (r === 2) p.pts += 3;
+    else if (r === 1) { p.pts += 2; p.allLiked = false; }
+    else {
+      p.harm++; p.allLiked = false;
+      if (p.harm > C.tough) {
+        p.withered = true; state.lost++; withered[C.name] = (withered[C.name] || 0) + 1;
+        burst(q.x, q.y, 8, '#9e9e9e', 60);
+        return;
+      }
+    }
+    if (p.pts >= 2 * C.days) { p.ripe = true; burst(q.x, q.y, 8, '#c6ff7a', 110); }
+  });
+  const many = (o, verb) => Object.entries(o).forEach(([name, n]) => toast(`${name}${n > 1 ? '×' + n + ' ' : ''}${verb}`, '#6d4c41'));
+  many(rotted, '烂在地里了');
+  many(withered, '枯萎了');
+  if (Object.keys(withered).length) sfx.wither();
+  if (d >= DAYS) { finishVoyage(); return; }
+  state.day++; state.soldHotToday = 0;
+  // 换天动画：脚步、预报条左移、地面渐变
+  stepT = 0.6; stripT = 1; walkTarget += 64;
+  biomeFrom = biomeTo; biomeTo = state.route[state.day]; groundT = 0;
+  sfx.step();
+  if (isMarketDay()) {
+    sfx.market();
+    toast(state.day === DAYS ? '🏮 最后一站！卖不掉的都带不走' : '🏮 到集市了！点仓库里的作物卖出', '#bf360c');
+  }
+}
+
+function update(dt) {
+  animate(dt);
+  if (state.phase !== 'play' || state.paused) return;
+  state.dayT += dt * state.speed;
+  while (state.dayT >= DAY_SECONDS && state.phase === 'play') {
+    state.dayT -= DAY_SECONDS;
+    endOfDay();
+  }
+}
+
+function startRound() {
+  state = newState('play');
+  ({ route: state.route, markets: state.markets } = genRoute(rng));
+  roundAchievements = new Set();
+  resetFx();
+  emitMoYuFunEvent('start');
+}
+function finishVoyage() {
+  if (state.phase !== 'play') return;
+  state.phase = 'end'; endT = 0;
+  const win = state.coins >= TARGET;
+  if (win) {
+    unlockAchievement('voyage');
+    if (state.lost === 0) unlockAchievement('no_loss');
+  }
+  if (state.coins >= TYCOON) unlockAchievement('tycoon');
+  emitMoYuFunStats({ rounds: 1, wins: win ? 1 : 0, harvests: Math.min(state.harvests, 300), coins: Math.min(state.coins, 1000000) });
+  emitMoYuFunEvent('end');
+  if (win) { sfx.win(); for (let k = 0; k < 60; k++) confetti(); } else sfx.lose();
+}
+function restart() {
+  if (state.phase === 'play') {
+    emitMoYuFunStats({ rounds: 1, wins: 0, harvests: Math.min(state.harvests, 300), coins: Math.min(state.coins, 1000000) });
+    emitMoYuFunEvent('end');
+  }
+  state = newState('title');
+  resetFx();
+}
+function togglePause() { if (state.phase === 'play') { state.paused = !state.paused; sfx.click(); } }
+function toggleSpeed() { if (state.phase === 'play') { state.speed = state.speed === 1 ? 2 : 1; sfx.click(); } }
+function selectSeed(c) { if (state.phase === 'play') { state.selected = c; sfx.click(); } }
+
+// ---------- 动画与特效 ----------
+let parts = [], flyers = [], floats = [], toasts = [];
+let time = 0, stepT = 0, stripT = 0, walk = 0, walkTarget = 0, groundT = 1, endT = 0, titleWalk = 0;
+let biomeFrom = 'grass', biomeTo = 'grass', dispCoins = START_COINS, coinFlash = 0, coinBump = 0;
+let plotVis = Array(16).fill(0), plotPop = Array(16).fill(0), barnBump = Array(8).fill(0);
+function resetFx() {
+  parts = []; flyers = []; floats = []; toasts = [];
+  stepT = 0; stripT = 0; groundT = 1; biomeFrom = biomeTo = 'grass';
+  dispCoins = state.coins; coinFlash = 0; coinBump = 0;
+  plotVis = Array(16).fill(0); plotPop = Array(16).fill(0); barnBump = Array(8).fill(0);
+}
+function toast(text, color) {
+  const top = toasts[0];
+  if (top && top.text === text) { top.t = 2.2; return; }
+  toasts.unshift({ text, color: color || 'rgba(40,32,24,.88)', t: 2.2 });
+  toasts.length = Math.min(toasts.length, 3);
+}
+function burst(x, y, n, color, speed) {
+  for (let k = 0; k < n; k++) {
+    const a = Math.random() * Math.PI * 2, v = speed * (0.4 + Math.random() * 0.6);
+    parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 40, g: 260, life: 0.6, max: 0.6, r: 2 + Math.random() * 2.5, color });
+  }
+}
+function confetti() {
+  const colors = ['#ffd54f', '#6fbf4a', '#4ab0bf', '#ff8a65', '#ba68c8'];
+  parts.push({ x: Math.random() * W, y: -10 - Math.random() * 200, vx: (Math.random() - 0.5) * 60, vy: 80 + Math.random() * 120,
+    g: 40, life: 3, max: 3, r: 3 + Math.random() * 3, color: colors[Math.floor(Math.random() * colors.length)] });
+}
+function animate(dt) {
+  time += dt; endT += dt;
+  stepT = Math.max(0, stepT - dt);
+  stripT = Math.max(0, stripT - dt / 0.45);
+  groundT = Math.min(1, groundT + dt / 0.6);
+  if (state.phase === 'title' && (titleWalk += dt) > 1.8) { titleWalk = 0; stepT = 0.6; walkTarget += 64; }
+  walk += (walkTarget - walk) * Math.min(1, dt * 4);
+  dispCoins += (state.coins - dispCoins) * Math.min(1, dt * 8);
+  if (Math.abs(state.coins - dispCoins) < 0.5) dispCoins = state.coins;
+  coinFlash = Math.max(0, coinFlash - dt); coinBump = Math.max(0, coinBump - dt * 4);
+  for (let i = 0; i < 16; i++) {
+    const p = state.plots[i];
+    const target = p ? Math.min(1, p.pts / (2 * CROPS[p.crop].days)) : 0;
+    plotVis[i] += (target - plotVis[i]) * Math.min(1, dt * 5);
+    plotPop[i] = Math.max(0, plotPop[i] - dt * 3);
+  }
+  for (let c = 0; c < 8; c++) barnBump[c] = Math.max(0, barnBump[c] - dt * 4);
+  for (const p of parts) { p.vy += p.g * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt; }
+  parts = parts.filter(p => p.life > 0);
+  for (const f of flyers) { f.t += dt / f.dur; if (f.t >= 1 && f.done) { f.done(); f.done = null; } }
+  flyers = flyers.filter(f => f.t < 1);
+  for (const f of floats) f.t += dt;
+  floats = floats.filter(f => f.t < 1.1);
+  for (const t of toasts) t.t -= dt;
+  toasts = toasts.filter(t => t.t > 0);
+}
+
+// ---------- 布局 ----------
+function plotRect(i) { return { x: FX + (i % 4) * (PLOT + GAP), y: FY + Math.floor(i / 4) * (PLOT + GAP) }; }
+function plotCenter(i) { const r = plotRect(i); return { x: r.x + PLOT / 2, y: r.y + PLOT / 2 }; }
+function plotAt(p) {
+  const cx = p.x - FX, cy = p.y - FY, col = Math.floor(cx / (PLOT + GAP)), row = Math.floor(cy / (PLOT + GAP));
+  if (col < 0 || col > 3 || row < 0 || row > 3) return -1;
+  if (cx - col * (PLOT + GAP) >= PLOT || cy - row * (PLOT + GAP) >= PLOT) return -1;
+  return row * 4 + col;
+}
+function barnCell(c) { return { x: 14 + c * 57, y: 730 }; }
+function inRect(p, x, y, w, h) { return p.x >= x && p.x < x + w && p.y >= y && p.y < y + h; }
+
+// ---------- 画面 ----------
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const view = { s: 1, ox: 0, oy: 0, dpr: 1, w: 0, h: 0 };
+// 用 clientWidth 而不是 innerWidth：手机上画布一旦过宽，innerWidth 会被撑大，越撑越大。
+function resize() {
+  view.dpr = window.devicePixelRatio || 1;
+  view.w = document.documentElement.clientWidth;
+  view.h = document.documentElement.clientHeight;
+  canvas.width = view.w * view.dpr;
+  canvas.height = view.h * view.dpr;
+  canvas.style.width = view.w + 'px';
+  canvas.style.height = view.h + 'px';
+  view.s = Math.min(view.w / W, view.h / H);
+  view.ox = (view.w - W * view.s) / 2;
+  view.oy = (view.h - H * view.s) / 2;
+}
+window.addEventListener('resize', resize);
+resize();
+
+let ui = [], mouse = null;
+const ease = t => 1 - (1 - t) ** 3;
+function hexRgb(h) { const n = parseInt(h.slice(1), 16); return [n >> 16, n >> 8 & 255, n & 255]; }
+function mix(a, b, t) {
+  const A = hexRgb(a), B = hexRgb(b);
+  return `rgb(${A.map((v, k) => Math.round(v + (B[k] - v) * t)).join(',')})`;
+}
+function rr(x, y, w, h, r) { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); ctx.fill(); }
+function text(s, x, y, size, color, weight, align) {
+  ctx.font = `${weight || 700} ${size}px ${FONT}`; ctx.fillStyle = color;
+  ctx.textAlign = align || 'center'; ctx.textBaseline = 'middle'; ctx.fillText(s, x, y);
+}
+function emo(s, x, y, size) {
+  ctx.font = `${size}px ${EMOJI}`; ctx.fillStyle = '#000';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(s, x, y);
+}
+// 估算宽度（不用 measureText，无头测试也能画）：中日文和 emoji 记一个字号，其余半个多。
+function textW(s, size) { return [...s].reduce((w, ch) => w + (ch.codePointAt(0) > 0x2e80 ? size : size * 0.58), 0); }
+function card(x, y, w, h, r, fill) {
+  ctx.fillStyle = 'rgba(0,0,0,.14)'; rr(x, y + 3, w, h, r);
+  ctx.fillStyle = fill || CREAM; rr(x, y, w, h, r);
+}
+function button(x, y, w, h, label, fill, color, fn, size) {
+  ctx.fillStyle = 'rgba(0,0,0,.18)'; rr(x, y + 3, w, h, 12);
+  ctx.fillStyle = fill; rr(x, y, w, h, 12);
+  const hover = mouse && inRect(mouse, x, y, w, h);
+  if (hover) { ctx.fillStyle = 'rgba(255,255,255,.18)'; rr(x, y, w, h, 12); }
+  text(label, x + w / 2, y + h / 2 + 1, size || 16, color);
+  ui.push({ x, y, w, h, fn });
+}
+function star(x, y, r, color) {
+  ctx.fillStyle = color; ctx.beginPath();
+  for (let k = 0; k < 8; k++) {
+    const a = k * Math.PI / 4, d = k % 2 ? r * 0.35 : r;
+    ctx.lineTo(x + Math.cos(a) * d, y + Math.sin(a) * d);
+  }
+  ctx.closePath(); ctx.fill();
+}
+
+// 地面装饰：随乌龟走动向左滚动，按地形换贴图。
+const DECO = (() => { const r = mulberry32(7), out = [];
+  for (let k = 0; k < 14; k++) out.push({ x: r() * 640, y: 170 + r() * 390, k: k % 2, s: 16 + r() * 8 });
+  return out; })();
+function drawGround() {
+  const t = ease(groundT);
+  ctx.globalAlpha = 0.55;
+  for (const d of DECO) {
+    const x = ((d.x - walk) % 640 + 640) % 640 - 80;
+    if (t < 1) { ctx.globalAlpha = 0.55 * (1 - t); emo(BIOMES[biomeFrom].deco[d.k], x, d.y, d.s); }
+    ctx.globalAlpha = 0.55 * t; emo(BIOMES[biomeTo].deco[d.k], x, d.y, d.s);
+  }
+  ctx.globalAlpha = 1;
+}
+
+function shellPath(a, b, n) {
+  ctx.beginPath();
+  for (let k = 0; k <= 72; k++) {
+    const t = k / 72 * Math.PI * 2, c = Math.cos(t), s = Math.sin(t);
+    const x = a * Math.sign(c) * Math.abs(c) ** (2 / n), y = b * Math.sign(s) * Math.abs(s) ** (2 / n);
+    if (k) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+  }
+  ctx.closePath();
+}
+// 玄武：俯视，头朝右（前进方向），四条腿每天迈一步。
+function drawTurtle(cx, cy, k) {
+  ctx.save(); ctx.translate(cx, cy); ctx.scale(k, k);
+  const p = stepT > 0 ? 1 - stepT / 0.6 : 0;
+  const la = Math.sin(Math.PI * Math.min(1, p * 2)) * 10, lb = Math.sin(Math.PI * Math.max(0, p * 2 - 1)) * 10;
+  const skin = '#8fbf62', skinDark = '#4f7d3a';
+  const limb = (x, y, rx, ry, rot) => {
+    ctx.save(); ctx.translate(x, y); ctx.rotate(rot);
+    ctx.fillStyle = skin; ctx.strokeStyle = skinDark; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#e8f0d8';
+    for (const s of [-1, 0, 1]) { ctx.beginPath(); ctx.arc(rx - 3, s * ry * 0.5, 2.5, 0, 7); ctx.fill(); }
+    ctx.restore();
+  };
+  limb(196 + la, -128, 24, 17, -0.5); limb(-196 + la, 128, 24, 17, Math.PI - 0.5);
+  limb(196 + lb, 128, 24, 17, 0.5); limb(-196 + lb, -128, 24, 17, Math.PI + 0.5);
+  // 尾巴
+  ctx.fillStyle = skin; ctx.strokeStyle = skinDark; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(-196, -12); ctx.lineTo(-226, Math.sin(time * 2) * 4); ctx.lineTo(-196, 12); ctx.closePath(); ctx.fill(); ctx.stroke();
+  // 头
+  const bob = Math.sin(time * 1.6) * 2 + (la + lb) * 0.25, hx = 212 + bob;
+  ctx.beginPath(); ctx.ellipse(hx, 0, 27, 25, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  const blink = (time % 4.2) < 0.12 ? 0.15 : 1;
+  for (const s of [-1, 1]) {
+    ctx.fillStyle = '#1d2b14'; ctx.beginPath(); ctx.ellipse(hx + 10, s * 11, 4.5, 4.5 * blink, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(hx + 11.5, s * 11 - 1.5, 1.4, 0, 7); ctx.fill();
+    ctx.fillStyle = 'rgba(255,120,120,.45)'; ctx.beginPath(); ctx.arc(hx + 4, s * 19, 4, 0, 7); ctx.fill();
+  }
+  // 龟壳：超椭圆 + 六边形甲片
+  shellPath(206, 198, 6); ctx.fillStyle = '#35561f'; ctx.fill();
+  shellPath(196, 188, 6);
+  const g = ctx.createRadialGradient(-40, -50, 20, 0, 0, 240);
+  g.addColorStop(0, '#669c49'); g.addColorStop(1, '#4a7535');
+  ctx.fillStyle = g; ctx.fill();
+  ctx.save(); ctx.clip();
+  ctx.strokeStyle = 'rgba(40,70,25,.55)'; ctx.lineWidth = 3; ctx.beginPath();
+  const R = 24;
+  for (let col = -7; col <= 7; col++) for (let row = -6; row <= 6; row++) {
+    const x = col * R * 1.5, y = row * R * 1.732 + (col & 1 ? R * 0.866 : 0);
+    for (let s = 0; s <= 6; s++) {
+      const a = s * Math.PI / 3, px = x + Math.cos(a) * R * 0.92, py = y + Math.sin(a) * R * 0.92;
+      if (s) ctx.lineTo(px, py); else ctx.moveTo(px, py);
+    }
+  }
+  ctx.stroke(); ctx.restore();
+  shellPath(196, 188, 6); ctx.strokeStyle = '#7fb05c'; ctx.lineWidth = 2; ctx.stroke();
+  ctx.restore();
+}
+
+// 一块地。p 为 null 是空地；hover 时预览选中的种子。
+function drawPlot(i, p, x, y, live) {
+  ctx.fillStyle = 'rgba(0,0,0,.28)'; rr(x, y + 3, PLOT, PLOT, 12);
+  ctx.fillStyle = p && p.withered ? '#6e5d50' : '#7a5034'; rr(x, y, PLOT, PLOT, 12);
+  ctx.fillStyle = p && p.withered ? '#857164' : '#946141'; rr(x + 4, y + 4, PLOT - 8, PLOT - 8, 10);
+  ctx.strokeStyle = 'rgba(70,40,20,.35)'; ctx.lineWidth = 2; ctx.beginPath();
+  for (const fy of [24, 42, 60]) { ctx.moveTo(x + 12, y + fy); ctx.lineTo(x + PLOT - 12, y + fy); }
+  ctx.stroke();
+  const hover = live && mouse && plotAt(mouse) === i && state.phase === 'play';
+  const cx = x + PLOT / 2;
+  if (!p) {
+    if (hover) {
+      ctx.strokeStyle = 'rgba(255,255,255,.85)'; ctx.lineWidth = 3; ctx.beginPath(); ctx.roundRect(x + 1.5, y + 1.5, PLOT - 3, PLOT - 3, 11); ctx.stroke();
+      ctx.globalAlpha = 0.4; emo(CROPS[state.selected].emoji, cx, y + 40, 30); ctx.globalAlpha = 1;
+    }
+    return;
+  }
+  const C = CROPS[p.crop];
+  if (p.withered) { ctx.globalAlpha = 0.9; emo('🥀', cx, y + 40, 38); ctx.globalAlpha = 1; return; }
+  if (p.ripe) {
+    const lastDay = p.age === 2, on = !lastDay || Math.sin(time * 9) > -0.2;
+    const glow = ctx.createRadialGradient(cx, y + 38, 4, cx, y + 38, 40);
+    glow.addColorStop(0, lastDay ? 'rgba(255,120,90,.55)' : 'rgba(255,236,130,.7)'); glow.addColorStop(1, 'rgba(255,236,130,0)');
+    ctx.fillStyle = glow; rr(x + 2, y + 2, PLOT - 4, PLOT - 4, 10);
+    ctx.globalAlpha = on ? 1 : 0.45;
+    emo(C.emoji, cx, y + 38 + Math.sin(time * 4 + i) * 2, 46 * (1 + plotPop[i] * 0.3));
+    ctx.globalAlpha = 1;
+    for (let k = 0; k < 3; k++) {
+      const a = time * 1.5 + k * 2.1 + i, tw = (Math.sin(time * 5 + k * 2 + i) + 1) / 2;
+      star(cx + Math.cos(a) * 30, y + 38 + Math.sin(a) * 26, 3 + tw * 4, `rgba(255,248,180,${0.4 + tw * 0.6})`);
+    }
+    ctx.strokeStyle = lastDay ? (on ? '#ff5252' : 'rgba(255,82,82,.3)') : '#ffd54f'; ctx.lineWidth = hover ? 4 : 3;
+    ctx.beginPath(); ctx.roundRect(x + 1.5, y + 1.5, PLOT - 3, PLOT - 3, 11); ctx.stroke();
+    if (lastDay) text('快烂了', cx, y + 70, 11, '#fff', 800);
+    return;
+  }
+  const v = plotVis[i];
+  emo(C.emoji, cx, y + 36, (20 + 24 * v) * (1 + plotPop[i] * 0.4));
+  ctx.fillStyle = 'rgba(0,0,0,.35)'; rr(x + 12, y + 64, PLOT - 24, 6, 3);
+  ctx.fillStyle = '#9be36a'; if (v > 0.02) rr(x + 12, y + 64, (PLOT - 24) * v, 6, 3);
+  if (C.tough < 99) for (let k = 0; k <= C.tough; k++) {
+    ctx.beginPath(); ctx.arc(x + 12 + k * 10, y + 12, 3.8, 0, 7);
+    if (k < p.harm) { ctx.fillStyle = '#e53935'; ctx.fill(); }
+    else { ctx.strokeStyle = 'rgba(255,255,255,.75)'; ctx.lineWidth = 1.5; ctx.stroke(); }
+  }
+  const today = state.route[state.day];
+  if (live && today) {
+    ctx.fillStyle = REL_COLOR[relation(p.crop, today)];
+    ctx.beginPath(); ctx.arc(x + PLOT - 12, y + 12, 5.5, 0, 7); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.lineWidth = 1.5; ctx.stroke();
+  }
+}
+
+function drawHud() {
+  card(8, 6, 464, 46, 14);
+  text(`第 ${state.day} / ${DAYS} 天`, 20, 22, 16, INK, 800, 'left');
+  ctx.fillStyle = 'rgba(61,51,38,.15)'; rr(20, 36, 110, 5, 3);
+  ctx.fillStyle = state.paused ? '#bdbdbd' : '#6fbf4a'; rr(20, 36, Math.max(5, 110 * state.dayT / DAY_SECONDS), 5, 3);
+  const c = Math.round(dispCoins), sz = 19 * (1 + coinBump * 0.12);
+  text(`💰 ${c} / ${TARGET}`, 212, 29, sz, coinFlash > 0 ? '#e53935' : state.coins >= TARGET ? '#2e7d32' : INK, 800);
+  if (state.paused) {
+    button(296, 12, 88, 34, '重新开始', '#e9dccb', '#8d4a32', () => { if (state.phase === 'play' && state.paused) restart(); }, 15);
+    button(390, 12, 74, 34, '▶ 继续', '#6fbf4a', '#fff', togglePause, 15);
+  } else {
+    button(362, 12, 46, 34, '⏸', '#e9dccb', INK, togglePause, 16);
+    button(414, 12, 50, 34, `${state.speed}×`, state.speed === 2 ? '#4ab0bf' : '#e9dccb', state.speed === 2 ? '#fff' : INK, toggleSpeed, 16);
+  }
+}
+
+function drawStripTile(d, idx, x, y) {
+  const w = 72, h = 96;
+  ctx.fillStyle = 'rgba(0,0,0,.18)'; rr(x, y + 3, w, h, 12);
+  const label = idx === 0 ? '今天' : idx > 0 ? '+' + idx : '';
+  if (d > DAYS) {
+    ctx.fillStyle = '#4e4033'; rr(x, y, w, h, 12);
+    text(label, x + 8, y + 12, 11, 'rgba(255,255,255,.7)', 700, 'left');
+    emo('🏁', x + w / 2, y + 44, 26); text('终点', x + w / 2, y + 76, 14, '#fff', 800);
+    return;
+  }
+  const b = state.route[d], B = BIOMES[b], ink = b === 'rain' ? '#fff' : INK;
+  ctx.fillStyle = B.ground; rr(x, y, w, h, 12);
+  ctx.fillStyle = 'rgba(255,255,255,.18)'; rr(x + 3, y + 3, w - 6, 18, 8);
+  const r = relation(state.selected, b);
+  ctx.strokeStyle = REL_COLOR[r]; ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.roundRect(x + 2, y + 2, w - 4, h - 4, 10); ctx.stroke();
+  if (idx === 0) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.beginPath(); ctx.roundRect(x - 3, y - 3, w + 6, h + 6, 14); ctx.stroke(); }
+  text(label, x + 9, y + 13, 11, ink, 800, 'left');
+  ctx.fillStyle = REL_COLOR[r]; ctx.beginPath(); ctx.arc(x + w - 13, y + 13, 8, 0, 7); ctx.fill();
+  text(REL_NAME[r], x + w - 13, y + 13.5, 10, '#fff', 800);
+  if (b === 'market') {
+    const m = state.markets[d];
+    emo('🏮', x + w / 2, y + 36, 22);
+    text('🔥', x + 20, y + 60, 12, '#000', 400); emo(CROPS[m.hot].emoji, x + 46, y + 60, 18);
+    text('❄', x + 20, y + 81, 13, '#1e88e5', 800); emo(CROPS[m.cold].emoji, x + 46, y + 81, 18);
+  } else {
+    emo(B.emoji, x + w / 2, y + 46, 30);
+    text(B.name, x + w / 2, y + 78, 14, ink, 800);
+  }
+}
+function drawStrip() {
+  const off = stripT * stripT * 78;
+  ctx.save(); ctx.beginPath(); ctx.rect(0, 56, W, 108); ctx.clip();
+  for (let idx = off > 0 ? -1 : 0; idx <= 5; idx++) {
+    const d = state.day + idx;
+    if (d < 1) continue;
+    drawStripTile(d, idx, 9 + idx * 78 + off, 62);
+  }
+  ctx.restore();
+}
+
+function drawSeeds() {
+  card(6, 562, 468, 134, 16);
+  CROPS.forEach((C, k) => {
+    const x = 14 + (k % 4) * 114, y = 568 + Math.floor(k / 4) * 56, w = 110, h = 52;
+    const sel = state.selected === k, afford = state.coins >= C.cost;
+    ctx.fillStyle = sel ? '#fff1c1' : '#f3eadb'; rr(x, y, w, h, 12);
+    if (sel) { ctx.strokeStyle = '#f0a020'; ctx.lineWidth = 3; ctx.beginPath(); ctx.roundRect(x + 1.5, y + 1.5, w - 3, h - 3, 11); ctx.stroke(); }
+    else if (mouse && inRect(mouse, x, y, w, h)) { ctx.fillStyle = 'rgba(255,255,255,.5)'; rr(x, y, w, h, 12); }
+    ctx.globalAlpha = afford ? 1 : 0.4;
+    emo(C.emoji, x + 20, y + 27, 24);
+    text(C.name, x + 38, y + 18, C.name.length > 3 ? 14 : 15, INK, 800, 'left');
+    text(`${C.cost} 金 · ${C.days} 天`, x + 38, y + 37, 12, MUTED, 600, 'left');
+    ctx.globalAlpha = 1;
+    text(String(k + 1), x + w - 8, y + 10, 10, 'rgba(61,51,38,.35)', 700);
+    ui.push({ x, y, w, h, fn: () => selectSeed(k) });
+  });
+  text(hintText(state.selected), 240, 684, 13, INK, 600);
+}
+
+function drawBarn() {
+  card(6, 702, 468, 92, 16, isMarketDay() ? '#fff3e0' : CREAM);
+  const mk = isMarketDay(), d = state.day;
+  if (mk) {
+    text(d === DAYS ? '最后一站！卖不掉的都带不走' : '🏮 集市 · 点作物卖出', 18, 717, 13, '#bf360c', 800, 'left');
+    const any = state.barn.some(n => n > 0);
+    button(W - 98, 706, 84, 24, '全部卖出', any ? '#f4a62a' : '#e0d5c4', any ? '#fff' : MUTED, () => sellAll(), 13);
+    if (d === DAYS) button(W - 190, 706, 84, 24, '靠岸结算', '#4ab0bf', '#fff', () => finishVoyage(), 13);
+  } else {
+    text('仓库', 18, 717, 14, INK, 800, 'left');
+    const next = MARKET_DAYS.find(m => m > d);
+    if (next) text(`下个集市：第 ${next} 天（还有 ${next - d} 天）`, W - 18, 717, 12, MUTED, 600, 'right');
+  }
+  CROPS.forEach((C, c) => {
+    const { x, y } = barnCell(c), n = state.barn[c], w = 54, h = 58, sellable = mk && n > 0;
+    const bump = 1 + barnBump[c] * 0.25;
+    ctx.fillStyle = sellable ? '#fff' : 'rgba(61,51,38,.06)'; rr(x, y, w, h, 10);
+    if (sellable) {
+      ctx.strokeStyle = `rgba(244,166,42,${0.6 + Math.sin(time * 5) * 0.3})`; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.roundRect(x + 1, y + 1, w - 2, h - 2, 9); ctx.stroke();
+      if (mouse && inRect(mouse, x, y, w, h)) { ctx.fillStyle = 'rgba(244,166,42,.15)'; rr(x, y, w, h, 10); }
+      ui.push({ x, y, w, h, fn: () => sell(c) });
+    }
+    ctx.globalAlpha = n ? 1 : 0.35;
+    emo(C.emoji, x + w / 2, y + 16, 22 * bump);
+    text(`×${n}`, x + w / 2, y + 36, 13, INK, 800);
+    ctx.globalAlpha = 1;
+    if (mk) {
+      const m = state.markets[d], p = price(c, d);
+      const [s, col] = m.hot === c ? [`🔥${p}`, '#e53935'] : m.cold === c ? [`❄${p}`, '#1e88e5'] : [`${p}金`, INK];
+      text(s, x + w / 2, y + 50, 11, col, 800);
+    } else text(`${C.sell}金`, x + w / 2, y + 50, 11, MUTED, 600);
+  });
+}
+
+function drawFx() {
+  for (const p of parts) {
+    ctx.globalAlpha = Math.max(0, Math.min(1, p.life / Math.min(0.3, p.max)));
+    ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 7); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  for (const f of flyers) {
+    if (f.t < 0) continue;
+    const t = ease(f.t), x = f.x0 + (f.x1 - f.x0) * t, y = f.y0 + (f.y1 - f.y0) * t - Math.sin(Math.PI * f.t) * 60;
+    emo(f.emoji, x, y, f.size * (1 - f.t * 0.45));
+  }
+  for (const f of floats) {
+    ctx.globalAlpha = Math.max(0, 1 - f.t / 1.1);
+    text(f.text, f.x, f.y - f.t * 26, 18, f.color, 900);
+  }
+  ctx.globalAlpha = 1;
+  toasts.forEach((t, k) => {
+    const w = textW(t.text, 14) + 32, y = 222 + k * 36;
+    ctx.globalAlpha = Math.min(1, t.t / 0.3);
+    ctx.fillStyle = t.color; rr(W / 2 - w / 2, y - 15, w, 30, 15);
+    text(t.text, W / 2, y + 1, 14, '#fff', 700);
+  });
+  ctx.globalAlpha = 1;
+}
+
+const DEMO = [[1, 1, 0.6], [5, 0, 1], [6, 6, 0.3], [9, 4, 0.8], [10, 5, 1], [12, 7, 0.5], [15, 2, 0.9]];
+function drawTitle() {
+  text('玄武农场', W / 2, 96, 54, '#23401a', 900);
+  text('在神龟背上种田，赶在下一个集市前收成', W / 2, 146, 16, '#2f5a22', 700);
+  drawTurtle(W / 2, 312, 0.6);
+  ctx.save(); ctx.translate(W / 2, 312); ctx.scale(0.6, 0.6); ctx.translate(-TCX, -TCY);
+  for (let i = 0; i < 16; i++) {
+    const d = DEMO.find(e => e[0] === i), r = plotRect(i);
+    const p = d && { crop: d[1], pts: 0, harm: 0, ripe: d[2] >= 1, age: 0, withered: false };
+    if (d) plotVis[i] = d[2];
+    drawPlot(i, p, r.x, r.y, false);
+  }
+  ctx.restore();
+  card(26, 456, 428, 132, 18);
+  [['🌱', '选种子，点空地播种；点成熟的作物收获。'],
+    ['🧭', '看前方的路线：作物在喜欢的地形长得快，在讨厌的地形会枯萎。'],
+    ['🏮', '到集市卖掉收成，三十天内攒够 800 金币。']].forEach(([e, s], k) => {
+    emo(e, 50, 488 + k * 34, 18);
+    text(s, 68, 488 + k * 34, 13, INK, 600, 'left');
+  });
+  button(W / 2 - 90, 612, 180, 58, '启程', '#5aa83a', '#fff', () => { if (state.phase === 'title') startRound(); }, 24);
+  text('1–8 选种子 · 空格 暂停 · F 加速 · M 静音', W / 2, 700, 12, '#2f5a22', 600);
+}
+
+function drawEnd() {
+  ui = [];
+  const a = ease(Math.min(1, endT / 0.4)), win = state.coins >= TARGET;
+  ctx.fillStyle = `rgba(25,20,12,${0.5 * a})`; ctx.fillRect(0, 0, W, H);
+  ctx.save(); ctx.globalAlpha = a; ctx.translate(0, (1 - a) * 40);
+  card(40, 226, 400, 330, 24);
+  text(win ? '满载而归！' : '盘缠不够……', W / 2, 284, 34, win ? '#2e7d32' : '#8d4a32', 900);
+  text(`金币 ${state.coins} / ${TARGET}`, W / 2, 344, 26, INK, 800);
+  text(`收获 ${state.harvests}`, W / 2 - 70, 394, 17, INK, 700);
+  text(`损失 ${state.lost}`, W / 2 + 70, 394, 17, state.lost ? '#c62828' : INK, 700);
+  const note = state.coins >= TYCOON ? '🏆 富甲一方！' : win ? (state.lost ? '' : '一株也没浪费') : `还差 ${TARGET - state.coins} 金币`;
+  if (note) text(note, W / 2, 432, 15, state.coins >= TYCOON ? '#c77800' : MUTED, 700);
+  button(W / 2 - 90, 466, 180, 56, '再来一趟', '#5aa83a', '#fff', () => { if (state.phase === 'end' && endT > 0.6) startRound(); }, 20);
+  ctx.restore();
+}
+
+function draw() {
+  ui = [];
+  const t = ease(groundT), ground = mix(BIOMES[biomeFrom].ground, BIOMES[biomeTo].ground, t);
+  ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
+  ctx.fillStyle = ground; ctx.fillRect(0, 0, view.w, view.h);
+  ctx.setTransform(view.s * view.dpr, 0, 0, view.s * view.dpr, view.ox * view.dpr, view.oy * view.dpr);
+  ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.clip();
+  drawGround();
+  if (state.phase === 'title') drawTitle();
+  else {
+    if (state.paused) { ctx.fillStyle = 'rgba(30,30,40,.25)'; ctx.fillRect(0, 0, W, H); }
+    drawTurtle(TCX, TCY, 1);
+    for (let i = 0; i < 16; i++) { const r = plotRect(i); drawPlot(i, state.plots[i], r.x, r.y, true); }
+    drawHud(); drawStrip(); drawSeeds(); drawBarn();
+    if (state.paused) {
+      ctx.fillStyle = 'rgba(30,25,20,.82)'; rr(W / 2 - 112, 163, 224, 22, 11);
+      text('⏸ 暂停中 · 仍可播种、收获、卖出', W / 2, 174.5, 12, '#fff', 700);
+    }
+  }
+  drawFx();
+  if (state.phase === 'end') drawEnd();
+  if (muted) text('🔇', W - 14, H - 10, 12, '#000', 400);
+  ctx.restore();
+}
+
+// ---------- 输入（D11：Pointer Events；从一块地拖动会对经过的地重复同一动作） ----------
+function toWorld(e) { return { x: (e.clientX - view.ox) / view.s, y: (e.clientY - view.oy) / view.s }; }
+let drag = null, press = null;
+function actOn(i, mode) {
+  const p = state.plots[i];
+  if (mode === 'plant' && !p) plant(i, state.selected);
+  else if (mode === 'harvest' && p && (p.ripe || p.withered)) harvest(i);
+}
+canvas.addEventListener('pointerdown', e => {
+  ensureAudio();
+  const p = toWorld(e);
+  press = null; drag = null;
+  const i = state.phase === 'play' ? plotAt(p) : -1;
+  if (i < 0) { press = p; return; }
+  const plot = state.plots[i];
+  if (!plot) { plant(i, state.selected); drag = { mode: 'plant', last: i }; }
+  else if (plot.ripe || plot.withered) { harvest(i); drag = { mode: 'harvest', last: i }; }
+  else { toast(hintText(plot.crop)); drag = { mode: null, last: i }; }
+  try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* 合成事件没有指针 */ }
+});
+canvas.addEventListener('pointermove', e => {
+  const p = toWorld(e);
+  if (e.pointerType === 'mouse') mouse = p;
+  if (drag && drag.mode && state.phase === 'play') {
+    const i = plotAt(p);
+    if (i >= 0 && i !== drag.last) { drag.last = i; actOn(i, drag.mode); }
+  }
+  if (e.pointerType === 'mouse') {
+    const i = state.phase === 'play' ? plotAt(p) : -1, plot = i >= 0 && state.plots[i];
+    canvas.style.cursor = (i >= 0 && (!plot || plot.ripe || plot.withered)) || ui.some(b => inRect(p, b.x, b.y, b.w, b.h)) ? 'pointer' : 'default';
+  }
+});
+canvas.addEventListener('pointerup', e => {
+  const p = toWorld(e), start = press;
+  drag = null; press = null;
+  if (!start) return;
+  // 按下和抬起都在同一个按钮里才算点击；按钮函数自己检查当前状态。
+  const b = ui.find(b => inRect(p, b.x, b.y, b.w, b.h) && inRect(start, b.x, b.y, b.w, b.h));
+  if (b) b.fn();
+});
+canvas.addEventListener('pointercancel', () => { drag = null; press = null; });
+canvas.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') mouse = null; });
+window.addEventListener('keydown', e => {
+  ensureAudio();
+  if (e.code === 'Space') { e.preventDefault(); togglePause(); }
+  else if (e.code === 'KeyF') toggleSpeed();
+  else if (e.code === 'KeyM') muted = !muted;
+  else if (/^(Digit|Numpad)[1-8]$/.test(e.code)) selectSeed(Number(e.code.slice(-1)) - 1);
+});
+document.addEventListener('visibilitychange', () => { if (document.hidden && state.phase === 'play') state.paused = true; });
+
+let lastT = 0;
+function loop(now) {
+  const dt = Math.min(0.1, (now - lastT) / 1000 || 0);
+  lastT = now;
+  update(dt); draw();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+// 主站在水合后才监听消息，单发的 ready 可能丢；重复的 ready 主站会忽略。start 在点「启程」时才发。
+emitMoYuFunEvent('ready');
+for (const ms of [500, 2000, 5000]) setTimeout(() => emitMoYuFunEvent('ready'), ms);
+</script>
+</body>
+</html>

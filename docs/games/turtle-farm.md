@@ -1,6 +1,6 @@
 # 玄武农场 (`turtle-farm`)
 
-**Status:** Design — settled, not yet implemented. Milestones: M1 ☐ · M2 ☐ · M3 ☐
+**Status:** Implemented 2026-10-02 (`games/turtle-farm/v1/`), released locally; production publish follows (`pnpm game publish turtle-farm v1`). Milestones: M1 ☑ · M2 ☑ · M3 ☑ (see notes).
 
 A farming game on the back of a walking giant turtle. Your 4 × 4 field rides 玄武 across 草原, 雨林, 沙漠 and 雪原 for 30 days, stopping at a 集市 every sixth day. Each crop grows fast in the land it likes and withers if it spends too long in land it hates, and the route is visible only 5 days ahead. So you plant now for the land the field will cross while the crop grows, and harvest in time to sell at the next market. Earn 800 金币 by the end of day 30. Mouse or touch, single-player, about 6 minutes at 1×.
 
@@ -149,7 +149,7 @@ Scaled with `view.s = min(w/480, h/800)` and centred. Landscape iframes get lett
 - **Seeds (y 570–690):** 8 buttons of 110 × 56 in 2 rows, each showing emoji, name and `N 金 · N 天`. The selected seed is outlined. Unaffordable seeds are dimmed but still selectable for their hint. The seed hint line sits under the buttons.
 - **仓库 (y 700–792):** 8 counts as `emoji ×n`. On a market day it becomes `集市`: each crop with stock shows its price (hot in red with 🔥, cold in blue) and is tappable to sell, and a `全部卖出` button appears. On day 30 the panel also shows `靠岸结算`, which calls `finishVoyage()`, and the header line `最后一站！卖不掉的都带不走`.
 - **Title:** `玄武农场`, subtitle `在神龟背上种田，赶在下一个集市前收成`, three rule lines, and an `启程` button. The rule lines are `选种子，点空地播种；点成熟的作物收获。`, `看前方的路线：作物在喜欢的地形长得快，在讨厌的地形会枯萎。` and `到集市卖掉收成，三十天内攒够 800 金币。`
-- **Pause overlay:** `暂停中`, with `继续` and `重新开始`.
+- **Pause overlay:** `暂停中`, with `继续` and `重新开始`. *Changed in M1:* it does not cover the screen, because D3 keeps the field, seeds and market usable while paused. The HUD's `⏸`/`1×` buttons become `重新开始` and `▶ 继续`, the ground dims, and a pill `⏸ 暂停中 · 仍可播种、收获、卖出` sits above the field.
 - **End:** a win shows `满载而归！`, a loss shows `盘缠不够……`. Both show `金币 N / 800`, `收获 N`, `损失 N` and `再来一趟`, which starts a new route.
 - **Sounds:** plant (short low blip), harvest (rising pop), sell (two-note coin), wither (falling tone), market arrival (two-tone horn at the start of a market day) and a soft step at each day change.
 
@@ -245,6 +245,28 @@ Done when: `pnpm game check turtle-farm v1` passes.
 **M3 · Local release.** `pnpm game:local publish turtle-farm v1 --yes`.
 Done when: `/play/turtle-farm` plays locally, and a logged-in round unlocks `thrive` and updates the board. The owner runs the production publish.
 
+### M3 notes
+
+- Local publish registered the game, its achievements and stats; the smoke test found `/play/turtle-farm` serving v1.
+- Played a voyage to day 18 in the browser with real clicks: planting single plots, a drag-plant sweep (with stepwise pointer moves) that stopped at `金币不够`, harvesting ripe crops into the 仓库, 2× speed, pausing and the paused top bar, and the day-18 market (`到集市了！`, 🔥/❄ prices, `全部卖出` turning 2 萝卜 + 4 玉米 at the cold price into 30 金). No console errors.
+- On `/play/turtle-farm`, 启程 then pause and `重新开始` wrote `game_ready`, `game_start` and `game_end` to the local events table. No account was logged in, so the achievement popup and stats board were not exercised in the browser.
+- Gotcha for automated testing: the browser pane's built-in drag jumps from start to end, so a drag-plant only hits the first and last plot; real pointers send intermediate moves.
+- Markets do not pause the game. A player who reaches a market with no crops, or lets it pass, waits six days for the next one, and with no coins can't plant meanwhile. Worth watching in the owner's playtest (Open items).
+
 ## Open items
 
 - The 800 target and the 12 s day were set from bot simulations, not people. After M1 the owner playtests a few voyages at 1×. If humans fall far from the bot (target too hard, or 16 plots too busy in 12 s), the owner adjusts `TARGET` or `DAY_SECONDS`, and the bot bands in the test stay as they are.
+
+## Implementation notes
+
+D1–D11 hold as written. The model is the prototype's, and the headless test reproduces the D9 numbers exactly: `forecastBot(5)` 94.0% ≥ 800 (15.0% ≥ 1500, median 1157), `forecastBot(0)` 0%, `potatoBot` 0% (median 356), `randomBot` 0% (median 47). The prototype's potato bot also held back the cold crop; the test follows this doc (only `forecastBot` holds it), which changes nothing.
+
+- Changed in M1: the pause overlay is non-blocking (see Screen). The doc's two requirements (an overlay with 继续/重新开始, and the field working while paused) could not both hold with a full-screen card.
+- Layout moved a few pixels to fit everything in 800: strip tiles at y 62–158, seed buttons 110 × 52 at y 568 and 624, hint line at y 684, 仓库 card at y 702–794. The shell is a superellipse (n = 6) around the 344 px field, so the head and legs only peek out at the screen edges.
+- `update(dt)` always advances animations; only the clock stops while paused or off `play`. Animation state (particles, flying emoji, toasts, strip slide, ground crossfade) lives outside `state`, so the rules stay testable and `update(12)` in the bots simply flushes it.
+- `roundAchievements` is the SDK block's global (as in other games), not a `state` field.
+- Additions not in the doc: 仓库 cells show the base sell price (seed buttons show only cost and days, so the player had no other way to learn it before the first market); a `下个集市：第 N 天（还有 N 天）` line; a 喜/平/忌 letter badge on each strip tile, so the tint does not rely on colour alone; `快烂了` on a ripe crop's last day; toasts for withering and market arrival; rot and wither toasts merge per crop per day (`萝卜×3 烂在地里了`); `金币不够` also flashes the coin counter red; small key numbers on seed buttons; a `🔇` corner mark while muted.
+- Input: plots act on `pointerdown` (so a drag starts at once); buttons fire on `pointerup` only when the press started in the same button, and every button function re-checks the current state, so a stale frame cannot fire a disabled action. Taps outside plots and buttons do nothing. A drag that starts on a growing plot shows its hint and does nothing else.
+- Text width is estimated by character class instead of `measureText`, so the headless stub can draw every screen; the test draws the title, play, paused, market and end screens.
+- The visual check used screenshots from a separate headless Chrome on a scratch copy, plus synthetic pointer events (start, seed select, drag-plant, drag-harvest, empty tap, pause, plant while paused). A real touch device and the mobile emulator were not used; that is part of M3's browser playtest.
+

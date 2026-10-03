@@ -1,0 +1,30 @@
+{
+  "slug": "turtle-farm",
+  "name": "玄武农场",
+  "shortDescription": "在神龟背上种田，看准前方地形再播种。",
+  "description": "上古玄武驮着你的田地穿过草原、雨林、沙漠和雪原。每种作物都有喜欢和讨厌的地形：在喜欢的地方长得快，在讨厌的地方待久了就会枯萎。看准前方五天的路线再播种，赶在集市前收成卖掉，三十天内攒够 800 金币。",
+  "tags": ["种田", "策略", "单人"],
+  "controls": [
+    { "input": "鼠标 / 触摸", "action": "选种子，点空地播种，点成熟作物收获（可拖动连续操作）" },
+    { "input": "集市面板", "action": "卖出作物" },
+    { "input": "1–8", "action": "选择种子" },
+    { "input": "空格", "action": "暂停或继续" },
+    { "input": "F", "action": "切换 1× / 2× 速度" },
+    { "input": "M", "action": "静音或恢复声音" }
+  ],
+  "cover": { "symbol": "龟", "eyebrow": "SHELL FARMING", "accent": "#6fbf4a", "accentSecondary": "#4ab0bf" },
+  "sortOrder": 100,
+  "achievements": [
+    { "key": "thrive", "name": "风调雨顺", "description": "收获一株全程都在喜欢的地形里长大的作物。", "symbol": "顺" },
+    { "key": "hot_seller", "name": "抢手货", "description": "在一次集市上卖出至少 5 个热销作物。", "symbol": "抢" },
+    { "key": "voyage", "name": "满载而归", "description": "航程结束时金币达到 800。", "symbol": "归" },
+    { "key": "no_loss", "name": "寸草不枯", "description": "达到 800 金币，且整趟没有作物枯萎或烂掉。", "symbol": "枯" },
+    { "key": "tycoon", "name": "富甲一方", "description": "航程结束时金币达到 1500。", "symbol": "富" }
+  ],
+  "stats": [
+    { "key": "rounds", "name": "航程", "maxPerRound": 1 },
+    { "key": "wins", "name": "满载", "maxPerRound": 1 },
+    { "key": "harvests", "name": "收获", "maxPerRound": 300 },
+    { "key": "coins", "name": "金币", "maxPerRound": 1000000 }
+  ]
+}
