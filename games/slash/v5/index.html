@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>抢鱼 · 3v3 夺鱼战</title>
+<title>乱刃</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { width: 100%; height: 100%; overflow: hidden; background: #0b0d12;
@@ -16,7 +16,7 @@
     align-items: center; justify-content: center; gap: 18px; padding: 24px;
     background: radial-gradient(ellipse at 50% 30%, #181d2b 0%, #0b0d12 70%); overflow-y: auto; }
   #menu h1 { font-size: 52px; letter-spacing: 18px; text-indent: 18px; font-weight: 800;
-    background: linear-gradient(180deg, #fff 20%, #ffe28a 60%, #ffb020 100%);
+    background: linear-gradient(180deg, #fff 20%, #8fb7ff 60%, #4a6cff 100%);
     -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
   #menu .sub { color: #8a93a8; font-size: 14px; letter-spacing: 2px; margin-top: -8px; }
 
@@ -67,8 +67,8 @@
 <canvas id="game"></canvas>
 
 <div id="menu">
-  <h1>抢 鱼</h1>
-  <p class="sub">3V3 夺鱼战 · 选两种斩击，与队友把金鱼抢回家</p>
+  <h1>乱 刃</h1>
+  <p class="sub">TOP-DOWN ARENA · 选两种斩击，与 5 名 AI 剑客混战</p>
   <div id="slots">
     <div class="slot" id="slotL"><span class="key-tag">左槽 · 鼠标左键 / J</span><span class="glyph">?</span><div class="meta"><b>未装备</b><span>点击卡片装备</span></div></div>
     <div class="slot" id="slotR"><span class="key-tag">右槽 · 鼠标右键 / K</span><span class="glyph">?</span><div class="meta"><b>未装备</b><span>点击卡片装备</span></div></div>
@@ -80,19 +80,18 @@
   </div>
   <p id="hint"></p>
   <p id="help"><b>WASD / 方向键</b> 移动 · <b>鼠标</b> 瞄准 · <b>左键 / 右键</b> 释放对应槽位斩击（可按住连发）<br>
-    碰到金鱼即可拾取，带回己方阵地得分，<b>先得 5 分</b> 获胜 · <b>持鱼时无法使用右槽</b>，受击即掉鱼 · <b>M</b> 静音</p>
+    击败对手得分，率先取得 <b>10 杀</b> 获胜 · 阵亡后 2.5 秒重生 · <b>M</b> 静音</p>
 </div>
 <script>
 'use strict';
 /* ================================================================
- * 抢鱼 · 3v3 夺鱼战
- * 基于乱刃的双槽斩击：青鱼门（玩家 + 2 AI）对赤鲤帮（3 AI），抢中央金鱼带回己方阵地
+ * 乱刃
+ * top-down 双槽斩击 FFA：玩家 + 5 AI，各带两种斩击混战
  * ================================================================ */
 
 // ---------- 常量 ----------
 const ARENA_W = 1100, ARENA_H = 700;
-const WIN_SCORE = 5, ROUND_TIME = 300, RESPAWN_TIME = 3;
-const FISH_GOLD = '#ffd24d';
+const WIN_KILLS = 10;
 const TAU = Math.PI * 2;
 
 // ---------- MoYuFun SDK v1 ----------
@@ -137,20 +136,26 @@ const SLASHES = {
 };
 const SLASH_LIST = Object.values(SLASHES);
 
-// ---------- 阵营、阵地与障碍物 ----------
-const TEAMS = [
-  { name: '青鱼门', color: '#4dd2ff', ai: ['阿青', '小蓝'] },
-  { name: '赤鲤帮', color: '#ff5a5a', ai: ['赤瞳', '红鲤', '丹砂'] },
-];
-const BASES = [{ x: 90, y: 350, r: 70 }, { x: 1010, y: 350, r: 70 }];
+// ---------- 障碍物与出生点 ----------
 const OBSTACLES = [
-  { x: 300, y: 320, w: 60, h: 60 },
-  { x: 740, y: 320, w: 60, h: 60 },
+  { x: 505, y: 305, w: 90, h: 90 },
   { x: 180, y: 150, w: 150, h: 36 },
   { x: 770, y: 150, w: 150, h: 36 },
   { x: 180, y: 514, w: 150, h: 36 },
   { x: 770, y: 514, w: 150, h: 36 },
 ];
+const SPAWN_POINTS = [
+  [90, 90], [ARENA_W - 90, 90], [90, ARENA_H - 90], [ARENA_W - 90, ARENA_H - 90],
+  [ARENA_W / 2, 80], [ARENA_W / 2, ARENA_H - 80],
+];
+const AI_PROFILES = [
+  { name:'赤瞳', color:'#ff5a5a' },
+  { name:'青岚', color:'#4dd2ff' },
+  { name:'紫电', color:'#b78cff' },
+  { name:'金铃', color:'#ffd24d' },
+  { name:'翠羽', color:'#8dff5a' },
+];
+
 // ---------- 音频 ----------
 let AC = null, master = null, muted = false;
 function ensureAudio() {
@@ -252,24 +257,23 @@ canvas.addEventListener('contextmenu', e => e.preventDefault());
 // ---------- 游戏状态 ----------
 let phase = 'menu';            // 'menu' | 'play' | 'over'
 let entities = [], projectiles = [], swings = [], particles = [], floaters = [], killfeed = [];
-let player = null, winnerTeam = null;
+let player = null, winner = null;
 let shakeT = 0, shakeMag = 0, freezeT = 0, gameT = 0;
 let nextId = 1;
-let fish = null, teamScore = [0, 0], stealUntil = 0;
 
 // ---------- 实体 ----------
-function makeEntity(name, team, isPlayer, slotKeys, x, y) {
+function makeEntity(name, color, isPlayer, slotKeys, x, y) {
   return {
-    id: nextId++, name, team, color: TEAMS[team].color, isPlayer,
+    id: nextId++, name, color, isPlayer,
     x, y, r: 16, ivx: 0, ivy: 0,
-    facing: team === 0 ? 0 : Math.PI, speed: isPlayer ? 238 : rand(212, 236),
+    facing: rand(0, TAU), speed: isPlayer ? 238 : rand(212, 236),
     hp: 100, maxHp: 100, alive: true, respawnT: 0, invulnT: 1.2,
     slots: slotKeys, cds: [0, 0], casting: null,
-    kills: 0, deaths: 0, scores: 0, escortKills: 0,
+    kills: 0, deaths: 0,
     moveX: 0, moveY: 0,
     ai: isPlayer ? null : {
-      tgt: null, goal: null, decideT: 0, reactT: rand(0.2, 0.6),
-      strafeDir: 1, strafeT: 0, mx: 0, my: 0,
+      targetId: -1, decideT: 0, reactT: rand(0.2, 0.6), aimJitter: 0,
+      strafeDir: 1, strafeT: 0, wanderT: 0, wx: 0, wy: 0, mx: 0, my: 0,
       turnSpeed: rand(5.5, 7.5), aggression: rand(0.8, 1.2),
     },
   };
@@ -279,74 +283,22 @@ function randomPair() {
   let b; do { b = SLASH_LIST[(Math.random() * SLASH_LIST.length) | 0].key; } while (b === a);
   return [a, b];
 }
-function feed(text, color) {
-  killfeed.unshift({ text, color, t: 0 });
-  if (killfeed.length > 4) killfeed.pop();
-}
-
-// ---------- 金鱼 ----------
-function resetFish() {
-  fish = { x: ARENA_W / 2, y: ARENA_H / 2, carrier: null, lockT: 0, idleT: 0, resetT: 0 };
-}
-function pickUpFish(e) {
-  fish.carrier = e;
-  feed(e.name + ' 抢到了鱼', FISH_GOLD);
-  if (e === player && stealUntil && gameT <= stealUntil) unlockAchievement('steal');
-  stealUntil = 0;
-}
-function dropFish(byAttacker) {
-  const c = fish.carrier;
-  if (!c) return;
-  fish.carrier = null; fish.x = c.x; fish.y = c.y; fish.lockT = 0.6; fish.idleT = 0;
-  if (byAttacker === player && c.team === 1) stealUntil = gameT + 3;
-}
-function score(carrier) {
-  if (phase !== 'play') return;
-  carrier.scores++;
-  teamScore[carrier.team]++;
-  feed(carrier.name + ' 送鱼成功', TEAMS[carrier.team].color);
-  if (carrier === player) {
-    unlockAchievement('first_score');
-    if (player.scores >= 3) unlockAchievement('hat_trick');
+function pickSpawn() {
+  let best = SPAWN_POINTS[0], bd = -1;
+  for (const p of SPAWN_POINTS) {
+    let m = Infinity;
+    for (const e of entities) {
+      if (!e.alive) continue;
+      m = Math.min(m, Math.hypot(e.x - p[0], e.y - p[1]));
+    }
+    if (m > bd) { bd = m; best = p; }
   }
-  resetFish();
-  // 加时（D5）：比分在 5:00 时持平，下一次得分直接结束
-  if (teamScore[carrier.team] >= WIN_SCORE || gameT >= ROUND_TIME) endRound(carrier.team);
-  else fish.resetT = 2;
-}
-function endRound(team) {
-  if (phase !== 'play') return;
-  if (team === 0) {
-    unlockAchievement('first_win');
-    if (teamScore[1] === 0) unlockAchievement('shutout');
-  }
-  emitMoYuFunStats({ rounds: 1, wins: team === 0 ? 1 : 0, scores: player.scores, kills: Math.min(player.kills, 100) });
-  winnerTeam = team; phase = 'over'; emitMoYuFunEvent('end');
-}
-function updateFish(dt) {
-  if (fish.resetT > 0) { fish.resetT -= dt; return; }
-  const c = fish.carrier;
-  if (c) {
-    fish.x = c.x; fish.y = c.y;
-    const b = BASES[c.team];
-    if (Math.hypot(c.x - b.x, c.y - b.y) < b.r) score(c);
-    return;
-  }
-  if (fish.lockT > 0) fish.lockT -= dt;
-  if (fish.x !== ARENA_W / 2 || fish.y !== ARENA_H / 2) {
-    fish.idleT += dt;
-    if (fish.idleT >= 10) { resetFish(); feed('鱼回到了中央', FISH_GOLD); return; }
-  }
-  if (fish.lockT > 0) return;
-  for (const e of entities) {
-    if (e.alive && dist(e, fish) < e.r + 14) { pickUpFish(e); return; }
-  }
+  return best;
 }
 
 // ---------- 战斗 ----------
 function tryCast(e, slot) {
   if (!e.alive || e.casting || e.cds[slot] > 0) return;
-  if (slot === 1 && fish.carrier === e) return;   // 持鱼时无法使用右槽
   const def = SLASHES[e.slots[slot]];
   e.cds[slot] = def.cd;
   e.casting = { def, slot, t: 0, dur: def.windup };
@@ -366,7 +318,7 @@ function doStrike(e, def) {
   const arcRad = def.arc * Math.PI / 180;
   let hitAny = false;
   for (const t of entities) {
-    if (t.team === e.team || !t.alive || t.invulnT > 0) continue;   // 无友伤
+    if (t === e || !t.alive || t.invulnT > 0) continue;
     const dx = t.x - e.x, dy = t.y - e.y, d = Math.hypot(dx, dy);
     if (d > def.range + t.r) continue;
     if (def.arc < 360 && Math.abs(angDiff(Math.atan2(dy, dx), e.facing)) > arcRad / 2) continue;
@@ -383,26 +335,39 @@ function applyDamage(src, tgt, def, angle) {
   spawnSparks(tgt.x, tgt.y, def.color, def.shake ? 16 : 8);
   floaters.push({ x: tgt.x + rand(-8, 8), y: tgt.y - tgt.r - 6, text: '-' + def.dmg, color: def.color, t: 0, life: 0.7 });
   sfxHit(def.shake);
-  if (fish.carrier === tgt) dropFish(src);
+  // AI 受击后概率转火攻击者
+  if (tgt.ai && src && src.alive && Math.random() < 0.5) tgt.ai.targetId = src.id;
   if (tgt.hp <= 0) kill(src, tgt);
 }
 function kill(src, tgt) {
-  tgt.alive = false; tgt.casting = null; tgt.respawnT = RESPAWN_TIME; tgt.deaths++;
-  tgt.hp = 0; tgt.ivx = tgt.ivy = 0;
-  if (fish.carrier === tgt) dropFish(src);
+  tgt.alive = false; tgt.casting = null; tgt.respawnT = 2.5; tgt.deaths++;
+  tgt.hp = 0; tgt.ivx = tgt.ivy = 0; tgt.streak = 0;
+  if (src && src !== tgt) { src.kills++; src.streak = (src.streak || 0) + 1; }
   spawnSparks(tgt.x, tgt.y, tgt.color, 26);
   sfxDeath();
   shakeT = Math.max(shakeT, 0.22); shakeMag = 8; freezeT = Math.max(freezeT, 0.06);
-  if (!src || src === tgt) return;
-  src.kills++;
-  feed(src.name + ' 击倒了 ' + tgt.name, src.color);
-  if (phase === 'play' && src === player && fish.carrier && fish.carrier.team === 0 && fish.carrier !== player) {
-    if (++player.escortKills >= 3) unlockAchievement('escort');
+  if (src && src !== tgt) {
+    killfeed.unshift({ text: src.name + ' 斩杀了 ' + tgt.name, color: src.color, t: 0 });
+    if (killfeed.length > 4) killfeed.pop();
+  }
+  if (phase === 'play' && src && src.isPlayer && src !== tgt) {
+    unlockAchievement('first_blood');
+    if (src.streak >= 5) unlockAchievement('rampage');
+  }
+  if (phase === 'play' && src && src.kills >= WIN_KILLS) {
+    if (src.isPlayer) {
+      unlockAchievement('first_win');
+      if (src.deaths === 0) unlockAchievement('flawless');
+      if (gameT < 120) unlockAchievement('swift');
+      if (src.slots.slice().sort().join('+') === 'thrust+wave') unlockAchievement('ranged');
+    }
+    emitMoYuFunStats({ rounds: 1, wins: src.isPlayer ? 1 : 0, kills: player.kills });
+    winner = src; phase = 'over'; emitMoYuFunEvent('end');
   }
 }
 function respawn(e) {
-  const b = BASES[e.team];
-  e.x = b.x + rand(-30, 30); e.y = b.y + rand(-40, 40); e.hp = e.maxHp; e.alive = true;
+  const p = pickSpawn();
+  e.x = p[0]; e.y = p[1]; e.hp = e.maxHp; e.alive = true;
   e.invulnT = 1.5; e.cds = [0, 0]; e.casting = null; e.ivx = e.ivy = 0;
 }
 function spawnSparks(x, y, color, n) {
@@ -418,41 +383,22 @@ function preferredRange(e) {
   for (const k of e.slots) { const d = SLASHES[k]; sum += d.projectile ? 250 : d.range * 0.8; }
   return Math.max(60, sum / e.slots.length);
 }
-function nearestEnemy(e, from, maxD) {
-  let best = null, bd = maxD;
-  for (const o of entities) {
-    if (!o.alive || o.team === e.team) continue;
-    const d = dist(from, o);
-    if (d < bd) { bd = d; best = o; }
-  }
-  return best;
-}
-// 角色（每 0.3 秒重算）：鱼无主时最近两人抢鱼、第三人打人；己方持鱼时护送；敌方持鱼时全员追杀持鱼者
-function aiRole(e) {
-  const c = fish.carrier;
-  if (!c) {
-    const mates = entities.filter(o => o.alive && o.team === e.team).sort((a, b) => dist(a, fish) - dist(b, fish));
-    if (mates.indexOf(e) < 2) return { goal: fish, tgt: nearestEnemy(e, e, 150) };
-    return { goal: null, tgt: nearestEnemy(e, e, Infinity) };
-  }
-  if (c === e) return { goal: BASES[e.team], tgt: nearestEnemy(e, e, 90) };
-  if (c.team === e.team) {
-    const tgt = nearestEnemy(e, c, 250);
-    if (tgt) return { goal: null, tgt };
-    const b = BASES[c.team], d = dist(c, b) || 1;
-    return { goal: { x: c.x + (b.x - c.x) / d * 80, y: c.y + (b.y - c.y) / d * 80 }, tgt: null };
-  }
-  return { goal: null, tgt: c };
-}
 function aiThink(e, dt) {
   const ai = e.ai;
-  ai.decideT -= dt; ai.reactT -= dt; ai.strafeT -= dt;
-  if (ai.decideT <= 0 || (ai.tgt && !ai.tgt.alive)) {
-    const role = aiRole(e);
-    ai.goal = role.goal; ai.tgt = role.tgt; ai.decideT = 0.3;
+  ai.decideT -= dt; ai.reactT -= dt; ai.strafeT -= dt; ai.wanderT -= dt;
+  let tgt = null;
+  for (const en of entities) if (en.id === ai.targetId && en.alive) { tgt = en; break; }
+  if (!tgt || ai.decideT <= 0) {
+    let best = null, bd = Infinity;
+    for (const o of entities) {
+      if (o === e || !o.alive) continue;
+      const d = dist(e, o);
+      if (d < bd) { bd = d; best = o; }
+    }
+    if (best) ai.targetId = best.id;
+    tgt = best;
+    ai.decideT = 0.3 + Math.random() * 0.3;
   }
-  const tgt = ai.tgt && ai.tgt.alive ? ai.tgt : null;
-  if (ai.strafeT <= 0) { ai.strafeDir = Math.random() < 0.5 ? -1 : 1; ai.strafeT = rand(0.6, 1.8); }
   let mx = 0, my = 0;
   if (tgt) {
     const dx = tgt.x - e.x, dy = tgt.y - e.y, d = Math.hypot(dx, dy) || 1;
@@ -463,7 +409,7 @@ function aiThink(e, dt) {
       const usable = [];
       e.slots.forEach((k, i) => {
         const def = SLASHES[k];
-        if (e.cds[i] > 0 || (i === 1 && fish.carrier === e)) return;
+        if (e.cds[i] > 0) return;
         const rng = def.projectile ? 330 : def.range + tgt.r;
         if (def.projectile && d < 60) return;
         if (d > rng * 0.95) return;
@@ -478,25 +424,18 @@ function aiThink(e, dt) {
       }
     }
     // 走位：保持偏好距离 + 环绕游走
-    if (!ai.goal) {
-      const pref = preferredRange(e);
-      if (d > pref + 18) { mx = ux; my = uy; }
-      else if (d < pref - 26) { mx = -ux; my = -uy; }
-      const s = d < pref + 130 ? 0.85 : 0.3;
-      mx += -uy * ai.strafeDir * s; my += ux * ai.strafeDir * s;
-    }
+    const pref = preferredRange(e);
+    if (d > pref + 18) { mx = ux; my = uy; }
+    else if (d < pref - 26) { mx = -ux; my = -uy; }
+    if (ai.strafeT <= 0) { ai.strafeDir = Math.random() < 0.5 ? -1 : 1; ai.strafeT = rand(0.6, 1.8); }
+    const s = d < pref + 130 ? 0.85 : 0.3;
+    mx += -uy * ai.strafeDir * s; my += ux * ai.strafeDir * s;
+    const m = Math.hypot(mx, my) || 1; mx /= m; my /= m;
+  } else {
+    if (ai.wanderT <= 0) { ai.wx = rand(-1, 1); ai.wy = rand(-1, 1); ai.wanderT = rand(0.8, 1.6); }
+    mx = ai.wx; my = ai.wy;
   }
-  if (ai.goal) {
-    // 直线奔向目标点；一点侧向分量让角色能沿障碍滑开（D8）
-    const dx = ai.goal.x - e.x, dy = ai.goal.y - e.y, d = Math.hypot(dx, dy);
-    if (d > 4) {
-      const ux = dx / d, uy = dy / d;
-      mx = ux - uy * ai.strafeDir * 0.35; my = uy + ux * ai.strafeDir * 0.35;
-      if (!tgt) e.facing = turnToward(e.facing, Math.atan2(dy, dx), ai.turnSpeed * dt);
-    }
-  }
-  const m = Math.hypot(mx, my) || 1;
-  ai.mx = mx / m; ai.my = my / m;
+  ai.mx = mx; ai.my = my;
 }
 
 // ---------- 玩家控制 ----------
@@ -555,7 +494,7 @@ function update(dt) {
     // 移动
     let dx = e.isPlayer ? e.moveX : e.ai.mx;
     let dy = e.isPlayer ? e.moveY : e.ai.my;
-    let spd = fish.carrier === e ? e.speed * 0.7 : e.speed;
+    let spd = e.speed;
     if (e.casting) {
       const def = e.casting.def;
       if (dashing) { dx = Math.cos(e.facing); dy = Math.sin(e.facing); spd = def.dashSpeed; }
@@ -593,7 +532,7 @@ function update(dt) {
     }
     if (p.life <= 0) continue;
     for (const t of entities) {
-      if (t.team === p.src.team || !t.alive || t.invulnT > 0) continue;
+      if (t === p.src || !t.alive || t.invulnT > 0) continue;
       if (Math.hypot(t.x - p.x, t.y - p.y) < p.r + t.r) {
         applyDamage(p.src, t, p.def, Math.atan2(p.vy, p.vx));
         p.life = 0;
@@ -602,11 +541,6 @@ function update(dt) {
     }
   }
   projectiles = projectiles.filter(p => p.life > 0);
-  if (phase === 'play') {
-    updateFish(dt);
-    // 5:00 时领先方获胜；平分则进入加时，由下一次得分结束（见 score）
-    if (phase === 'play' && gameT >= ROUND_TIME && teamScore[0] !== teamScore[1]) endRound(teamScore[0] > teamScore[1] ? 0 : 1);
-  }
   // 特效
   for (const s of swings) s.t += dt;
   swings = swings.filter(s => s.t < s.life);
@@ -632,16 +566,6 @@ function drawSector(x, y, facing, range, arcDeg, color, alpha) {
   ctx.fillStyle = color; ctx.globalAlpha = alpha; ctx.fill();
   ctx.globalAlpha = 1;
 }
-function drawFish(x, y, k) {
-  ctx.save(); ctx.translate(x, y); ctx.scale(k, k);
-  ctx.shadowColor = FISH_GOLD; ctx.shadowBlur = 12;
-  ctx.fillStyle = FISH_GOLD;
-  ctx.beginPath(); ctx.ellipse(0, 0, 11, 6.5, 0, 0, TAU); ctx.fill();
-  ctx.beginPath(); ctx.moveTo(-8, 0); ctx.lineTo(-17, -7); ctx.lineTo(-17, 7); ctx.closePath(); ctx.fill();
-  ctx.shadowBlur = 0; ctx.fillStyle = '#0b0d12';
-  ctx.beginPath(); ctx.arc(5, -1.5, 1.6, 0, TAU); ctx.fill();
-  ctx.restore();
-}
 function render() {
   ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
   ctx.fillStyle = '#0b0d12';
@@ -663,12 +587,6 @@ function render() {
   ctx.stroke();
   ctx.strokeStyle = '#3a4358'; ctx.lineWidth = 3;
   ctx.strokeRect(1.5, 1.5, ARENA_W - 3, ARENA_H - 3);
-  // 阵地
-  BASES.forEach((b, i) => {
-    ctx.fillStyle = TEAMS[i].color; ctx.globalAlpha = 0.25;
-    ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, TAU); ctx.fill();
-    ctx.globalAlpha = 1;
-  });
   // 障碍
   for (const o of OBSTACLES) {
     ctx.fillStyle = '#232838';
@@ -703,12 +621,6 @@ function render() {
     ctx.fillStyle = '#fff';
     ctx.beginPath(); ctx.ellipse(2, 0, 9, 2.5, 0, 0, TAU); ctx.fill();
     ctx.restore();
-  }
-  // 地上的金鱼
-  if (fish && phase !== 'menu' && !fish.carrier && fish.resetT <= 0) {
-    ctx.globalAlpha = fish.lockT > 0 ? 0.5 : 1;
-    drawFish(fish.x, fish.y + Math.sin(gameT * 4) * 2, 1.2);
-    ctx.globalAlpha = 1;
   }
   // 角色
   for (const e of entities) {
@@ -753,7 +665,6 @@ function render() {
     ctx.fillRect(e.x - bw / 2, e.y - e.r - 10, bw, 4.5);
     ctx.fillStyle = hpFrac > 0.5 ? '#6fe38a' : hpFrac > 0.25 ? '#ffc94d' : '#ff5a5a';
     ctx.fillRect(e.x - bw / 2, e.y - e.r - 10, bw * hpFrac, 4.5);
-    if (fish && fish.carrier === e) drawFish(e.x, e.y - e.r - 34, 0.9);
     ctx.globalAlpha = 1;
   }
   // 粒子
@@ -786,44 +697,33 @@ function drawHUD() {
     ctx.fillText('⚔ ' + k.text, 16, 26 + i * 20);
   });
   ctx.globalAlpha = 1;
-  // 比分 + 计时
-  ctx.font = 'bold 20px "PingFang SC", sans-serif';
-  ctx.textAlign = 'right'; ctx.fillStyle = TEAMS[0].color;
-  ctx.fillText(TEAMS[0].name + ' ' + teamScore[0], ARENA_W / 2 - 10, 30);
-  ctx.textAlign = 'center'; ctx.fillStyle = '#e8ecf4';
-  ctx.fillText(':', ARENA_W / 2, 29);
-  ctx.textAlign = 'left'; ctx.fillStyle = TEAMS[1].color;
-  ctx.fillText(teamScore[1] + ' ' + TEAMS[1].name, ARENA_W / 2 + 10, 30);
-  const secs = Math.ceil(Math.max(0, ROUND_TIME - gameT));
-  ctx.textAlign = 'center'; ctx.font = '13px "PingFang SC", sans-serif';
-  ctx.fillStyle = gameT >= ROUND_TIME ? FISH_GOLD : 'rgba(255,255,255,0.55)';
-  ctx.fillText(gameT >= ROUND_TIME ? '加时' : Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0'), ARENA_W / 2, 50);
-  if (phase === 'play' && fish.resetT > 0) {
-    ctx.fillStyle = FISH_GOLD; ctx.font = 'bold 18px "PingFang SC", sans-serif';
-    ctx.fillText('下一条鱼 ' + fish.resetT.toFixed(1), ARENA_W / 2, ARENA_H / 2 + 6);
-  }
-  // 记分板：按阵营分组
-  const sx = ARENA_W - 214;
-  ctx.font = '11px "PingFang SC", sans-serif'; ctx.fillStyle = '#69718a'; ctx.textAlign = 'right';
-  ['送鱼', '击倒', '阵亡'].forEach((h, c) => ctx.fillText(h, sx + 132 + c * 34, 20));
-  [...entities].sort((a, b) => a.team - b.team).forEach((e, i) => {
-    const y = 42 + i * 22 + e.team * 8, x = sx;
+  // 目标提示
+  ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(255,255,255,0.35)';
+  ctx.font = '12px "PingFang SC", sans-serif';
+  ctx.fillText('率先取得 ' + WIN_KILLS + ' 杀获胜', ARENA_W / 2, 22);
+  // 记分板
+  const rows = [...entities].sort((a, b) => b.kills - a.kills || a.deaths - b.deaths);
+  ctx.textAlign = 'left';
+  rows.forEach((e, i) => {
+    const y = 22 + i * 24, x = ARENA_W - 168;
     if (e.isPlayer) {
       ctx.fillStyle = 'rgba(255,255,255,0.08)';
-      ctx.fillRect(x - 8, y - 12, 210, 20);
+      ctx.fillRect(x - 8, y - 12, 164, 21);
     }
     ctx.fillStyle = e.color;
     ctx.beginPath(); ctx.arc(x, y - 3, 5, 0, TAU); ctx.fill();
     ctx.fillStyle = e.isPlayer ? '#fff' : 'rgba(232,236,244,0.9)';
     ctx.font = (e.isPlayer ? 'bold ' : '') + '12px "PingFang SC", sans-serif';
-    ctx.textAlign = 'left';
     ctx.fillText(e.name, x + 12, y + 1);
     e.slots.forEach((k, si) => {
       ctx.fillStyle = SLASHES[k].color;
-      ctx.fillRect(x + 50 + si * 12, y - 9, 8, 8);
+      ctx.fillRect(x + 62 + si * 12, y - 9, 8, 8);
     });
-    ctx.fillStyle = '#9aa4bb'; ctx.textAlign = 'right';
-    [e.scores, e.kills, e.deaths].forEach((v, c) => ctx.fillText(v, x + 132 + c * 34, y + 1));
+    ctx.fillStyle = '#9aa4bb';
+    ctx.textAlign = 'right';
+    ctx.fillText(e.kills + ' / ' + e.deaths, x + 152, y + 1);
+    ctx.textAlign = 'left';
   });
   // 玩家血条 + 斩击槽
   if (player) {
@@ -865,13 +765,6 @@ function drawHUD() {
         ctx.font = 'bold 14px "PingFang SC", sans-serif';
         ctx.fillText(player.cds[i].toFixed(1), x + size / 2, y + size / 2 + 5);
       }
-      if (i === 1 && fish.carrier === player) {
-        ctx.fillStyle = 'rgba(5,6,10,0.8)';
-        ctx.fillRect(x, y, size, size);
-        ctx.fillStyle = FISH_GOLD;
-        ctx.font = 'bold 14px "PingFang SC", sans-serif';
-        ctx.fillText('持鱼', x + size / 2, y + size / 2 + 5);
-      }
     }
     // 重生倒计时
     if (!player.alive && phase === 'play') {
@@ -882,16 +775,16 @@ function drawHUD() {
     }
   }
   // 结算横幅
-  if (phase === 'over' && winnerTeam !== null) {
+  if (phase === 'over' && winner) {
     ctx.fillStyle = 'rgba(5,6,10,0.72)';
     ctx.fillRect(0, 0, ARENA_W, ARENA_H);
     ctx.textAlign = 'center';
-    ctx.fillStyle = TEAMS[winnerTeam].color;
+    ctx.fillStyle = winner.color;
     ctx.font = 'bold 44px "PingFang SC", sans-serif';
-    ctx.fillText(TEAMS[winnerTeam].name + (winnerTeam === 0 ? '获胜！ ' : '获胜 ') + teamScore[0] + ' : ' + teamScore[1], ARENA_W / 2, ARENA_H / 2 - 40);
+    ctx.fillText(winner.name + ' 获胜！', ARENA_W / 2, ARENA_H / 2 - 40);
     ctx.fillStyle = '#e8ecf4';
     ctx.font = '16px "PingFang SC", sans-serif';
-    ctx.fillText('你：送鱼 ' + player.scores + ' · 击倒 ' + player.kills + ' · 阵亡 ' + player.deaths, ARENA_W / 2, ARENA_H / 2);
+    ctx.fillText(winner.kills + ' 杀 ' + winner.deaths + ' 死', ARENA_W / 2, ARENA_H / 2);
     ctx.fillStyle = '#9aa4bb';
     ctx.font = '14px "PingFang SC", sans-serif';
     ctx.fillText('按 R 再战一局（AI 重新随机斩击） · 按 B 返回配装', ARENA_W / 2, ARENA_H / 2 + 40);
@@ -967,15 +860,15 @@ startBtn.addEventListener('click', () => { ensureAudio(); startGame(); });
 
 function startGame() {
   entities = []; projectiles = []; swings = []; particles = []; floaters = []; killfeed = [];
-  winnerTeam = null; shakeT = 0; freezeT = 0; gameT = 0; nextId = 1;
-  teamScore = [0, 0]; stealUntil = 0; resetFish();
+  winner = null; shakeT = 0; freezeT = 0; gameT = 0; nextId = 1;
   roundAchievements = new Set();
-  player = makeEntity('你', 0, true, [loadout[0], loadout[1]], BASES[0].x + 40, BASES[0].y);
+  player = makeEntity('你', '#f5f7ff', true, [loadout[0], loadout[1]], ARENA_W / 2, ARENA_H - 140);
   entities.push(player);
-  TEAMS.forEach((t, team) => t.ai.forEach((name, i) => {
-    const dy = team === 0 ? (i ? 60 : -60) : (i - 1) * 60;
-    entities.push(makeEntity(name, team, false, randomPair(), BASES[team].x, BASES[team].y + dy));
-  }));
+  const corners = [[90, 90], [ARENA_W - 90, 90], [90, ARENA_H - 90], [ARENA_W - 90, ARENA_H - 90], [ARENA_W / 2, 80]];
+  AI_PROFILES.forEach((prof, i) => {
+    const c = corners[i % corners.length];
+    entities.push(makeEntity(prof.name, prof.color, false, randomPair(), c[0], c[1]));
+  });
   document.getElementById('menu').style.display = 'none';
   phase = 'play';
   emitMoYuFunEvent('start');
@@ -983,7 +876,7 @@ function startGame() {
 function backToMenu() {
   phase = 'menu';
   entities = []; projectiles = []; swings = []; particles = []; floaters = []; killfeed = [];
-  player = null; winnerTeam = null; fish = null;
+  player = null; winner = null;
   document.getElementById('menu').style.display = 'flex';
 }
 emitMoYuFunEvent('ready');

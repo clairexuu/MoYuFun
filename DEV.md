@@ -31,7 +31,7 @@
 | `src/components/page-event.tsx` | 首页与详情页的一次性访问事件 |
 | `src/components/game-card.tsx`、`game-cover.tsx` | 卡片与封面；封面由符号和配色绘制 |
 | `src/components/site-header.tsx`、`site-footer.tsx` | 共用页头、页脚 |
-| `games/slash/v1/`、`v2/`、`v3/`、`v4/` | 保留的历史版本、线上版本 v3（事件 SDK 与六项单局成就）与待发布的 v4（加上每局战绩上报）；各含游戏、玩法 README 和无头测试 |
+| `games/slash/v1/`–`v5/` | 「乱刃」各版本：v3 加入事件 SDK 与六项单局成就，v4 加上每局战绩上报，v5（当前线上）仅把标题改为「乱刃」；已发布的版本不可修改，改动一律发新版本。各含游戏、玩法 README 和无头测试 |
 | `supabase/migrations/` | Supabase 数据库结构、成就与战绩表及函数、「乱刃」版本发布迁移 |
 | `supabase/templates/`、`supabase/config.toml` | 验证与重置邮件模板及本地 Auth 配置（生产在 Dashboard 中镜像） |
 | `scripts/m5-production-wizard.sh` | 账号与成就上线的手工步骤向导（Resend、Supabase Dashboard、Vercel、R2、迁移、部署） |

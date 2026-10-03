@@ -12,7 +12,7 @@
     { "input": "M", "action": "静音或恢复声音" },
     { "input": "R / B", "action": "再战 / 返回配装" }
   ],
-  "cover": { "symbol": "鱼", "eyebrow": "3V3 CAPTURE", "accent": "#ffd24d", "accentSecondary": "#4dd2ff" },
+  "cover": { "symbol": "夺", "eyebrow": "3V3 CAPTURE", "accent": "#ffd24d", "accentSecondary": "#4dd2ff" },
   "sortOrder": 40,
   "achievements": [
     { "key": "first_score", "name": "摸到鱼了", "description": "亲手把鱼送回己方。", "symbol": "鱼" },
