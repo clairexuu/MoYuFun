@@ -1,6 +1,6 @@
 # 生态瓶 (`terrarium`)
 
-**Status:** Design — settled, not yet implemented. Milestones: M1 ☐ · M2 ☐ · M3 ☐
+**Status:** Implemented 2026-10-02 (`games/terrarium/v1/`), released locally; production publish follows (`pnpm game publish terrarium v1`). Milestones: M1 ☑ · M2 ☑ · M3 ☑ (see notes).
 
 A sealed-jar ecosystem sim built around one up-front decision. With a budget of 100 贝壳, put organisms and materials into a glass jar, pick its light, and seal the lid. After that you can only watch (and change the speed) while 100 days play out. The jar wins if animals and plants are both still alive on day 100. If it collapses, the end screen shows the population curves and a plain-language cause of death. Mouse or touch, single-player.
 
@@ -348,6 +348,27 @@ Done when: `pnpm game check terrarium v1` passes.
 **M3 · Local release.** `pnpm game:local publish terrarium v1 --yes`.
 Done when: `/play/terrarium` plays locally, and a logged-in 稳定瓶 round unlocks `sealed_100` and `full_house` and writes the stats. The owner runs the production publish.
 
+### M3 notes
+
+- Local publish registered the game, five achievements and four stats; the smoke test found `/play/terrarium` serving v1.
+- Built 稳定瓶 in the browser with real clicks (花费 90 / 100, 窗边), sealed it, watched the first days at 1×, then skipped to the end: `封瓶成功`, three stars, `物种 7 × 100 + 健康天数 93 × 3 = 979`, matching the reference table. No console errors.
+- On `/play/terrarium`, a 1 藻类 + 1 小虾 jar sealed and skipped ended `封瓶失败` on day 22 with the 废物中毒 diagnosis, and `game_ready`, `game_start` and `game_end` reached the local events table. No account was logged in, so the achievement popup and stats board were not exercised in the browser; the headless test covers the message sequence.
+- Gotcha for automated testing: canvas buttons take their enabled state from the last drawn frame, so a click in the same frame as the `+` that makes the jar sealable is ignored. Humans can't click that fast.
+
 ## Open items
 
 - Balance is tuned by a prototype only: about 42% of random full-budget setups win under 窗边, 38% under 灯下 and 16% under 背阴, and hypoxia is the most common death. If M1 playtests find the jar too harsh or too easy, the owner adjusts `ENV.T`, `ENV.Olow` or the animals' `rho`. The reference table and test expectations must then be re-measured in the same change.
+
+## Implementation notes
+
+No decision changed. The model is the code above, transcribed line for line; the headless test reproduces the reference table exactly (稳定瓶 healthy 93 / score 979, 背阴小瓶 700, 动物园 day 4 `hypo`, 灯下藻华 day 11 `bloom`, 无人打扫 day 18 `tox`), and all 17 neighbours of 稳定瓶 win.
+
+- `lightAt(light, hour)` is factored out of `stepHour` so the view (sun/moon, lamp glow, O₂ bubbles) uses the same lit test as the model. History row 0 uses `Omin = O0` (the doc left it open; `dayMinO` starts at 20).
+- The hour accumulator compares against `1 − 1e-9`: ten `update(0.1)` calls at 1× sum to slightly less than 24 in floating point and would otherwise step only 23 hours.
+- `advanceHour(live)` wraps `stepHour` with the toasts and sounds; `skipToEnd()` passes `live = false`, so skipping shows no toast burst. `氧气告急！` and `废物超标！` fire once per round (first hour the condition holds), not on every night's dip, which at 4× would spam.
+- `togglePause()` (space, `⏸`) remembers the last non-zero speed. Enter on the end overlay works only once it has slid in (0.45 s), so a held Enter from sealing cannot skip it.
+- `adjust` refusals still show the item's hint; a refusal for budget flashes the `🐚 剩余` chip red. A disabled `+` keeps a hit area for that feedback.
+- Additions not in the doc: 花费 and 光照 chips beside the setup jar; overlay titles `封瓶成功` (subtitle `撑过了 100 天`) / `封瓶失败`; a `这一瓶` recap line (items, light, cost) between the chart and `再来一瓶`, to support "tweak one thing and retry" (D11); a `🔇` corner mark while muted; a thin day-progress bar under the HUD.
+- Wrapping in the end card estimates width by character class (CJK = font size, ASCII = half) instead of `measureText`, so the headless stub can draw every screen.
+- The test's canvas stub returns itself from every method so gradients (`createLinearGradient(...).addColorStop`) run headless.
+- Visual check was done with screenshots from a separate headless Chrome on a scratch copy, not in the shared browser. Sprite counts follow D10; the lid drops in 0.35 s with a small shake and dust burst.

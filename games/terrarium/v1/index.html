@@ -1,0 +1,953 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>生态瓶</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #dcefe6;
+    user-select: none; -webkit-user-select: none; }
+  #game { position: absolute; inset: 0; display: block; touch-action: none; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<script>
+'use strict';
+/* 生态瓶：封瓶前定好一切，然后只能看着它活下去，或者崩溃。设计文档：docs/games/terrarium.md */
+
+// ---------- 常量 ----------
+const W = 480, H = 800, BUDGET = 100;
+const FONT = '"PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji"';
+const ITEMS = [
+  { key: 'algae', name: '藻类', icon: '🟢', cost: 3, max: 9, hint: '长得最快，小虾和螺的口粮。没人吃就会疯长成藻华。' },
+  { key: 'plant', name: '水草', icon: '🌿', cost: 8, max: 6, hint: '产氧主力，螺会啃它。铺沙能长得更大。' },
+  { key: 'moss', name: '苔藓', icon: '🍀', cost: 6, max: 6, hint: '耐阴，长在石头上，是跳虫的家和口粮。怕灯下暴晒。' },
+  { key: 'shrimp', name: '小虾', icon: '🦐', cost: 6, max: 9, hint: '只吃藻类，呼吸量大。' },
+  { key: 'snail', name: '螺', icon: '🐌', cost: 5, max: 9, hint: '吃藻类也啃水草，慢悠悠。' },
+  { key: 'spring', name: '跳虫', icon: '🦗', cost: 4, max: 6, hint: '吃废物和苔藓，帮忙打扫。' },
+  { key: 'bact', name: '细菌', icon: '🦠', cost: 4, max: 6, hint: '把废物分解成养分，但分解时要耗氧。' },
+  { key: 'sand', name: '沙', icon: '🟨', cost: 8, max: 2, hint: '水草能长得更大，细菌有更多地方住。' },
+  { key: 'char', name: '炭', icon: '⬛', cost: 10, max: 1, hint: '吸附毒素：废物到 60 才致毒（原本 30）。' },
+];
+const ITEM = Object.fromEntries(ITEMS.map(i => [i.key, i]));
+const LIGHT_INFO = {
+  shade: { icon: '🌥️', name: '背阴', sub: '弱光 · 10 小时', hint: '光弱，日照 10 小时，瓶里凉快，大家呼吸都慢。苔藓最爱。' },
+  window: { icon: '🪟', name: '窗边', sub: '日照 · 12 小时', hint: '日照 12 小时，不冷不热。' },
+  lamp: { icon: '💡', name: '灯下', sub: '强光 · 16 小时', hint: '强光 16 小时，长得快也更热：呼吸加快，苔藓会被晒伤。' },
+};
+const SP_COLOR = { algae: '#7cb342', plant: '#2e7d32', moss: '#9ccc65', shrimp: '#ff7043', snail: '#a1887f', spring: '#78909c', bact: '#ab47bc' };
+const DIAG = {
+  win: { title: '🌿 生机盎然', text: '第 100 天，瓶中依然生机勃勃。', tip: '', tint: '#e7f6ea' },
+  hypo: { title: '😮‍💨 缺氧', text: '动物、细菌和植物夜里都在呼吸，白天的光合作用补不回来。第 {hypDay} 天氧气跌破警戒线，动物窒息了。', tip: '少放些动物，或多放水草和苔藓。细菌分解废物也要耗氧。', tint: '#e6effd' },
+  bloom: { title: '🟢 藻华', text: '藻类疯长，把水染成浑绿，挡住了别的植物的光；太密的藻类成片死去腐烂，夜里和细菌一起把氧气耗尽。', tip: '多放小虾和螺来吃藻，少放藻类，或换弱一点的光。', tint: '#eaf5e0' },
+  tox: { title: '☠️ 废物中毒', text: '排泄物和尸体没人分解，在瓶底越堆越多，超过 {Wt} 后开始毒害动物。', tip: '放些细菌和跳虫当分解者，或放一块炭。', tint: '#f3ebe6' },
+  starve: { title: '🍽️ 饿死', text: '动物找不到足够的食物：小虾只吃藻类，螺吃藻类和水草，跳虫吃废物和苔藓。', tip: '给每种动物配上它吃的东西，食物要比动物多。', tint: '#fbf1e2' },
+  withered: { title: '🥀 植物枯死', text: '植物死得比长得快，最后一种也没了。可能是光太弱、养分耗尽，或苔藓在灯下被晒伤。', tip: '换个光照，或放些细菌把废物变回养分。', tint: '#f6e9ee' },
+};
+
+// ---------- 模型（纯函数，无随机；与文档逐行对应） ----------
+const LIGHTS = { shade: { I: 0.5, on: 7, off: 17, heat: 0.8 }, window: { I: 1.0, on: 6, off: 18, heat: 1.0 }, lamp: { I: 1.6, on: 5, off: 21, heat: 1.2 } };
+const PROD = {
+  algae: { mu: 1.2,  pi: 0.9, rho: 0.30, dth: 0.05, K: 100, Isat: 1.2, crowd: 3.0, burn: 0 },
+  plant: { mu: 0.4,  pi: 0.6, rho: 0.06, dth: 0.01, K: 60,  Isat: 0.8, crowd: 0,   burn: 0 },
+  moss:  { mu: 0.25, pi: 0.4, rho: 0.04, dth: 0.01, K: 40,  Isat: 0.4, crowd: 0,   burn: 0.15 },
+};
+const ANIM = {
+  shrimp: { food: ['algae'],          R: [5],     h: 5,  c: 3.0, b: 0.10, m: 0.01, sg: 0.05, rho: 0.5,  w: 2,   cap: 12 },
+  snail:  { food: ['algae', 'plant'], R: [5, 15], h: 10, c: 2.0, b: 0.05, m: 0.01, sg: 0.04, rho: 0.4,  w: 3,   cap: 8 },
+  spring: { food: ['W', 'moss'],      R: [0, 10], h: 3,  c: 0.1, b: 0.15, m: 0.03, sg: 0.10, rho: 0.03, w: 0.1, cap: 80 },
+};
+const BACT = { k: 1.0, hW: 10, kO: 2, y: 0.3, rho: 0.05, od: 1.0, dth: 0.05, K: 30 };
+const ENV = { T: 20, O0: 16, N0: 15, kC: 2, kN: 2, nu: 0.2, kappa: 0.5, Olow: 4, hypo: 1.5, Wtox: 30, tox: 0.5, turbA: 60 };
+const PORTION = { algae: 10, plant: 10, moss: 10, shrimp: 1, snail: 1, spring: 10, bact: 10 };
+const SPECIES = ['algae', 'plant', 'moss', 'shrimp', 'snail', 'spring', 'bact'];
+const ANIMALS = ['shrimp', 'snail', 'spring'], PRODUCERS = ['algae', 'plant', 'moss'];
+
+function costOf(setup) { return ITEMS.reduce((s, it) => s + it.cost * setup[it.key], 0); }
+function sealProblem(setup) {
+  return ANIMALS.some(k => setup[k] > 0) && PRODUCERS.some(k => setup[k] > 0) ? '' : '至少放一种动物和一种植物';
+}
+function wasteLimit(j) { return ENV.Wtox * (1 + j.char); }
+// 模型第 0 小时是第 1 天 06:00。
+function lightAt(light, hour) { const L = LIGHTS[light], h = (hour + 6) % 24; return h >= L.on && h < L.off ? L.I : 0; }
+function row(j, Omin) {
+  return { day: j.day, O: j.O, Omin, N: j.N, W: j.W, ...Object.fromEntries(SPECIES.map(k => [k, j[k]])) };
+}
+function createJar(setup) {
+  const j = { hour: 0, day: 0, O: ENV.O0, C: ENV.T - ENV.O0, N: ENV.N0, W: 0,
+    sand: setup.sand, char: setup.char, light: setup.light,
+    cause: { hypo: 0, tox: 0, starve: 0 }, aHyp: null, hypDay: null, dayMinO: ENV.T, dayMaxW: 0, healthy: 0, history: [] };
+  for (const k of SPECIES) j[k] = setup[k] * PORTION[k];
+  j.history.push(row(j, j.O));
+  return j;
+}
+function stepHour(j) {
+  const dt = 1 / 24, L = LIGHTS[j.light];
+  const I = lightAt(j.light, j.hour);
+  const fC = j.C / (j.C + ENV.kC), fN = j.N / (j.N + ENV.kN), resp = L.heat * j.O / (j.O + 1);
+  const turb = 1 / (1 + j.algae / ENV.turbA);
+  const d = { O: 0, N: 0, W: 0, algae: 0, plant: 0, moss: 0, shrimp: 0, snail: 0, spring: 0, bact: 0 };
+  for (const k of PRODUCERS) {
+    const p = PROD[k], X = j[k]; if (X <= 0) continue;
+    const K = p.K * (k === 'plant' ? 1 + 0.5 * j.sand : 1);
+    const fI = Math.min(1, I / p.Isat) * turb;
+    const grow = p.mu * X * fI * fN * fC * Math.max(0, 1 - X / K);
+    const die = (p.dth + p.burn * Math.max(0, I - 1) + p.crowd * Math.max(0, X / K - 0.5)) * X;
+    d[k] += grow - die; d.N -= ENV.nu * grow; d.W += die;
+    d.O += p.pi * X * fI * fC - p.rho * X * resp;
+  }
+  const hyp = j.O < ENV.Olow ? ENV.hypo * (1 - j.O / ENV.Olow) : 0;
+  if (hyp > 0 && j.aHyp === null) { j.aHyp = j.algae; j.hypDay = j.day + 1; }
+  const Wt = wasteLimit(j);
+  const tox = j.W > Wt ? ENV.tox * Math.min(1, (j.W - Wt) / Wt) : 0;
+  for (const k of ANIMALS) {
+    const a = ANIM[k], n = j[k]; if (n <= 0) continue;
+    const avail = a.food.map((f, i) => Math.max(0, j[f] - a.R[i]));
+    const F = avail[0] + (avail[1] || 0), sat = F / (F + a.h), eat = a.c * n * sat;
+    if (F > 0) a.food.forEach((f, i) => { d[f] -= eat * avail[i] / F; });
+    const starve = a.sg * (1 - sat);
+    const deaths = (a.m + starve + hyp + tox) * n;
+    d[k] += a.b * n * sat * Math.max(0, 1 - n / a.cap) - deaths;
+    d.W += ENV.kappa * eat + a.w * deaths; d.N += ENV.nu * (1 - ENV.kappa) * eat;
+    d.O -= a.rho * n * resp;
+    j.cause.hypo += hyp * n * a.w * dt; j.cause.tox += tox * n * a.w * dt; j.cause.starve += starve * n * a.w * dt;
+  }
+  const B = j.bact;
+  if (B > 0) {
+    const dec = BACT.k * B * j.W / (j.W + BACT.hW) * j.O / (j.O + BACT.kO);
+    d.bact += BACT.y * dec * Math.max(0, 1 - B / (BACT.K * (1 + j.sand))) - BACT.dth * B;
+    d.W -= dec; d.N += ENV.nu * dec; d.O -= BACT.od * dec + BACT.rho * B * resp;
+  }
+  for (const k of SPECIES) j[k] = Math.max(0, j[k] + d[k] * dt);
+  j.O = Math.min(ENV.T, Math.max(0, j.O + d.O * dt)); j.C = ENV.T - j.O;
+  j.N = Math.max(0, j.N + d.N * dt); j.W = Math.max(0, j.W + d.W * dt);
+  j.dayMinO = Math.min(j.dayMinO, j.O); j.dayMaxW = Math.max(j.dayMaxW, j.W);
+  j.hour++;
+  if (j.hour % 24 === 0) endDay(j);
+}
+function endDay(j) {
+  j.day++;
+  for (const k of SPECIES) if (j[k] > 0 && j[k] < 0.5) { j.W += j[k] * (ANIM[k] ? ANIM[k].w : 1); j[k] = 0; }
+  if (j.dayMinO >= 8 && j.dayMaxW < 15) j.healthy++;
+  j.history.push(row(j, j.dayMinO)); j.dayMinO = ENV.T; j.dayMaxW = 0;
+}
+function outcome(j) {
+  const noA = ANIMALS.every(k => j[k] === 0), noP = PRODUCERS.every(k => j[k] === 0);
+  if (noA || noP) return { win: false, day: j.day, diagnosis: diagnose(j, noA) };
+  return j.day >= 100 ? { win: true, day: 100, diagnosis: null } : null;
+}
+function diagnose(j, noAnimals) {
+  if (!noAnimals) return 'withered';
+  const c = j.cause, top = ['hypo', 'tox', 'starve'].reduce((a, b) => (c[b] > c[a] ? b : a));
+  return top === 'hypo' && j.aHyp >= 40 ? 'bloom' : top;
+}
+function scoreOf(j) {
+  const species = SPECIES.filter(k => j[k] > 0).length;
+  return { species, healthy: j.healthy, score: 100 * species + 3 * j.healthy };
+}
+
+// ---------- MoYuFun SDK v1 ----------
+const MOYUFUN_PARENT_ORIGIN = location.hostname === 'localhost'
+  ? 'http://localhost:3000'
+  : 'https://www.moyufuns.com';
+function emitMoYuFunEvent(type) {
+  if (window.parent === window) return;
+  window.parent.postMessage({ source: 'moyufun-game', version: 1, type }, MOYUFUN_PARENT_ORIGIN);
+}
+function emitMoYuFunAchievement(key) {
+  if (window.parent === window) return;
+  window.parent.postMessage({ source: 'moyufun-game', version: 1, type: 'achievement', key }, MOYUFUN_PARENT_ORIGIN);
+}
+// 战绩：每局结算时发送一次，在成就之后、end 之前；键和上限在 game.json 的 stats 中声明。
+function emitMoYuFunStats(stats) {
+  if (window.parent === window) return;
+  window.parent.postMessage({ source: 'moyufun-game', version: 1, type: 'stats', stats }, MOYUFUN_PARENT_ORIGIN);
+}
+// 成就：每局每个 key 最多发送一次；结算时的成就必须在 end 之前发送（主站在 end 后忽略成就）。
+let roundAchievements = new Set();
+function unlockAchievement(key) {
+  if (roundAchievements.has(key)) return;
+  roundAchievements.add(key);
+  emitMoYuFunAchievement(key);
+}
+
+// ---------- 音频 ----------
+let AC = null, master = null, muted = false;
+function ensureAudio() {
+  if (!AC) {
+    try {
+      AC = new (window.AudioContext || window.webkitAudioContext)();
+      master = AC.createGain(); master.gain.value = 0.2; master.connect(AC.destination);
+    } catch (err) { AC = null; }
+  }
+  if (AC && AC.state === 'suspended') AC.resume();
+}
+function tone(f0, f1, dur, type, vol, at) {
+  if (!AC || muted) return;
+  const t = AC.currentTime + (at || 0), o = AC.createOscillator(), g = AC.createGain();
+  o.type = type || 'sine';
+  o.frequency.setValueAtTime(Math.max(1, f0), t);
+  o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t + dur);
+  g.gain.setValueAtTime(vol || 1, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  o.connect(g); g.connect(master); o.start(t); o.stop(t + dur + 0.03);
+}
+
+// ---------- 随机（只给精灵用，模型不碰） ----------
+function mulberry32(a) {
+  return function () {
+    a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+let rng = Math.random;
+
+// ---------- 游戏状态 ----------
+function blankSetup() {
+  return { algae: 0, plant: 0, moss: 0, shrimp: 0, snail: 0, spring: 0, bact: 0, sand: 0, char: 0, light: 'window' };
+}
+let phase = 'setup', setup = blankSetup(), jar = null, speed = 1, lastSpeed = 1, acc = 0, result = null;
+let hint = '点卡片看说明。预算 100 贝壳，封瓶后就不能再改了。';
+let warned = { O: false, W: false }, toasts = [], bump = {}, flash = {}, budgetFlash = 0;
+let gameT = 0, lidT = 1, shake = 0, endT = 0;
+
+function adjust(key, delta) {
+  const it = ITEM[key];
+  if (phase !== 'setup' || !it) return false;
+  hint = it.hint;
+  const n = setup[key] + delta;
+  if (n < 0 || n > it.max || (delta > 0 && costOf(setup) + it.cost * delta > BUDGET)) {
+    if (delta > 0 && n <= it.max) budgetFlash = 1;
+    tone(200, 170, 0.08, 'square', 0.15);
+    return false;
+  }
+  setup[key] = n; bump[key] = 1;
+  if (delta > 0) tone(660, 880, 0.06, 'triangle', 0.5); else tone(520, 400, 0.06, 'triangle', 0.5);
+  return true;
+}
+function setLight(key) {
+  if (phase !== 'setup' || !LIGHTS[key]) return false;
+  setup.light = key; hint = LIGHT_INFO[key].hint;
+  tone(740, 990, 0.06, 'triangle', 0.35);
+  return true;
+}
+function seal() {
+  if (phase !== 'setup' || sealProblem(setup)) return false;
+  jar = createJar(setup);
+  roundAchievements = new Set();
+  emitMoYuFunEvent('start');
+  phase = 'run'; speed = 1; lastSpeed = 1; acc = 0; result = null;
+  warned = { O: false, W: false }; toasts = []; lidT = 0;
+  tone(180, 90, 0.15, 'square', 0.35); tone(1400, 1300, 0.6, 'sine', 0.35, 0.15);
+  return true;
+}
+function setSpeed(s) {
+  if (phase !== 'run') return;
+  if (s) lastSpeed = s;
+  speed = s;
+}
+function togglePause() { setSpeed(speed ? 0 : lastSpeed); }
+function toast(text, color) { toasts.unshift({ text, color: color || '#1f2d3a', t: 2.5 }); toasts.length = Math.min(toasts.length, 4); }
+
+// 推进一小时；live 为 false 时（跳到结局）不弹提示、不放音效。
+function advanceHour(live) {
+  const before = SPECIES.map(k => jar[k]);
+  stepHour(jar);
+  if (live) {
+    if (jar.O < ENV.Olow && !warned.O) { warned.O = true; toast('氧气告急！', '#c62828'); }
+    if (jar.W > wasteLimit(jar) && !warned.W) { warned.W = true; toast('废物超标！', '#6d4c41'); }
+    const day = jar.hour % 24 === 0 ? jar.day : jar.day + 1;
+    SPECIES.forEach((k, i) => {
+      if (before[i] > 0 && jar[k] === 0) {
+        toast(`第 ${day} 天：${ITEM[k].name}灭绝了`, '#5d4037'); flash[k] = 1;
+        tone(400, 200, 0.4, 'sine', 0.45);
+      }
+    });
+    if (speed === 1 && (jar.hour + 6) % 24 === LIGHTS[jar.light].on) tone(880, 1320, 0.12, 'sine', 0.25);
+  }
+  if (jar.hour % 24 === 0) {
+    const o = outcome(jar);
+    if (o) finish(o);
+  }
+}
+function update(dt) {
+  dt = Math.min(0.1, dt);
+  gameT += dt;
+  if (phase === 'run') {
+    acc += dt * 24 * speed;
+    // 1e-9：10 × 0.1 s × 24 在浮点里可能差一点点到不了 24。
+    while (acc >= 1 - 1e-9 && phase === 'run') { acc -= 1; advanceHour(true); }
+    if (phase !== 'run') acc = 0;
+  }
+  updateView(dt);
+}
+function skipToEnd() {
+  if (phase !== 'run') return;
+  while (phase === 'run') advanceHour(false);
+  acc = 0;
+}
+function finish(o) {
+  result = { ...o, ...scoreOf(jar) };
+  phase = 'end'; endT = 0;
+  if (o.win) {
+    unlockAchievement('sealed_100');
+    if (result.species === 7) unlockAchievement('full_house');
+    if (costOf(setup) <= 60) unlockAchievement('frugal');
+    if (setup.light === 'shade') unlockAchievement('shade_win');
+    if (jar.healthy === 100) unlockAchievement('calm');
+  }
+  emitMoYuFunStats({ rounds: 1, wins: o.win ? 1 : 0, days: o.day, species: result.species });
+  emitMoYuFunEvent('end');
+  if (o.win) {
+    [523, 659, 784, 1046].forEach((f, i) => tone(f, f * 1.01, 0.3, 'triangle', 0.45, i * 0.12));
+    confetti();
+  } else tone(220, 110, 0.8, 'sawtooth', 0.3);
+}
+function backToSetup() {
+  if (phase !== 'end') return false;
+  phase = 'setup'; jar = null; result = null; toasts = []; lidT = 1;
+  hint = '上一瓶的配置还在，改一样再试试。';
+  return true;
+}
+function viewJar() { return jar || createJar(setup); }
+function starsOf(r) { return !r.win ? 0 : r.score >= 900 ? 3 : r.score >= 700 ? 2 : 1; }
+
+// ---------- 精灵（D10：每帧从种群数量推出来，从不反过来影响模型） ----------
+// 瓶子坐标系 360 × 530：瓶口 y 56，水面 y 116，瓶底内壁 y 522。
+const ROCK = { x: 84, rx: 68, ry: 46 }, WATER_TOP = 116;
+let sprites = [], bubbles = [], parts = [];
+function zones(j) {
+  const baseY = 522 - 18 * j.sand - 10 * j.char, sedH = Math.min(j.W, 60) / 60 * 24;
+  return { baseY, sedH, floorY: baseY - sedH };
+}
+function groundY(z, x) {
+  const dx = (x - ROCK.x) / ROCK.rx;
+  return Math.abs(dx) < 1 ? Math.min(z.floorY, z.baseY - ROCK.ry * Math.sqrt(1 - dx * dx)) : z.floorY;
+}
+function targets(j) {
+  return {
+    shrimp: Math.round(j.shrimp), snail: Math.round(j.snail), spring: Math.min(40, Math.round(j.spring / 2)),
+    algae: Math.min(30, Math.round(j.algae / 3)), plant: Math.min(8, Math.ceil(j.plant / 10)),
+    moss: Math.min(12, Math.ceil(j.moss / 4)), bact: Math.min(12, Math.round(j.bact / 3)),
+  };
+}
+function spawn(kind, z) {
+  const s = { kind, age: 0, die: 0, ph: rng() * Math.PI * 2 };
+  const waterY = () => WATER_TOP + 24 + rng() * Math.max(10, z.floorY - WATER_TOP - 70);
+  if (kind === 'shrimp') Object.assign(s, { x: 40 + rng() * 280, y: waterY(), vx: (rng() < 0.5 ? -1 : 1) * (16 + rng() * 22) });
+  else if (kind === 'snail') Object.assign(s, { s: 200 + rng() * 320, dir: rng() < 0.5 ? -1 : 1 });
+  else if (kind === 'spring') Object.assign(s, { x: 26 + rng() * 170, y: 0, vx: 0, vy: 0, air: false, hop: 0.5 + rng() * 1.5 });
+  else if (kind === 'algae') Object.assign(s, { x: 24 + rng() * 312, y: waterY(), vx: (rng() - 0.5) * 8, vy: (rng() - 0.5) * 6 });
+  else if (kind === 'plant') Object.assign(s, { bx: 165 + rng() * 165, h: 0, lean: (rng() - 0.5) * 36 });
+  else if (kind === 'moss') Object.assign(s, { a: (rng() - 0.5) * 1.9, r: 0 });
+  else if (kind === 'bact') Object.assign(s, { x: 24 + rng() * 312 });
+  sprites.push(s);
+}
+function snailPos(z, s) {
+  const y0 = WATER_TOP + 40, yf = z.floorY - 11, lh = Math.max(0, yf - y0), fl = 314;
+  if (s < lh) return { x: 26, y: y0 + s, rot: Math.PI / 2 };
+  if (s < lh + fl) { const x = 26 + (s - lh); return { x, y: groundY(z, x) - 11, rot: 0 }; }
+  return { x: 340, y: yf - Math.min(lh, s - lh - fl), rot: -Math.PI / 2 };
+}
+function o2Rates(j, I) {
+  const fC = j.C / (j.C + ENV.kC), turb = 1 / (1 + j.algae / ENV.turbA);
+  return PRODUCERS.map(k => [k, PROD[k].pi * j[k] * Math.min(1, I / PROD[k].Isat) * turb * fC]);
+}
+function hourNow() { return jar ? jar.hour + (phase === 'run' ? acc : 0) : 6; }   // 配置时预览固定在正午
+
+function updateView(dt) {
+  const j = viewJar(), z = zones(j), tg = targets(j);
+  for (const k of SPECIES) {
+    const live = sprites.filter(s => s.kind === k && !s.die);
+    for (let i = live.length; i < tg[k]; i++) spawn(k, z);
+    for (let i = live.length - 1; i >= tg[k]; i--) live[i].die = 1;
+  }
+  const plants = Math.max(1, tg.plant), plantH = Math.min(240, 40 + 4 * j.plant / plants);
+  const mossR = Math.min(14, 8 + j.moss / 10);
+  for (const s of sprites) {
+    s.age += dt;
+    if (s.die) s.die = Math.max(0, s.die - dt);
+    if (s.kind === 'shrimp') {
+      s.x += s.vx * dt;
+      if (s.x < 34 || s.x > 326) { s.vx = -s.vx; s.x = Math.max(34, Math.min(326, s.x)); }
+      s.y = Math.min(s.y, z.floorY - 18);
+      if (s.die) s.y += 30 * dt;
+    } else if (s.kind === 'snail') {
+      if (!s.die) s.s += 6 * dt * s.dir;
+      const total = 2 * Math.max(0, z.floorY - 11 - WATER_TOP - 40) + 314;
+      if (s.s < 0 || s.s > total) { s.dir = -s.dir; s.s = Math.max(0, Math.min(total, s.s)); }
+    } else if (s.kind === 'spring') {
+      if (s.air) {
+        s.vy += 320 * dt; s.x += s.vx * dt; s.y += s.vy * dt;
+        s.x = Math.max(24, Math.min(210, s.x));
+        if (s.y >= groundY(z, s.x) - 2) { s.air = false; s.hop = 0.5 + rng() * 1.5; }
+      } else {
+        s.y = groundY(z, s.x) - 2;
+        s.hop -= dt;
+        if (s.hop <= 0 && !s.die) { s.air = true; s.vy = -(50 + rng() * 70); s.vx = (rng() - 0.5) * 80; }
+      }
+    } else if (s.kind === 'algae') {
+      s.x += (s.vx + Math.sin(gameT * 0.7 + s.ph) * 4) * dt; s.y += s.vy * dt;
+      if (s.x < 22 || s.x > 338) s.vx = -s.vx;
+      if (s.y < WATER_TOP + 8 || s.y > z.floorY - 6) { s.vy = -s.vy; s.y = Math.max(WATER_TOP + 8, Math.min(z.floorY - 6, s.y)); }
+      if (s.die) s.y += 20 * dt;
+    } else if (s.kind === 'plant') s.h += (plantH - s.h) * Math.min(1, dt * 2.5);
+    else if (s.kind === 'moss') s.r += (mossR - s.r) * Math.min(1, dt * 3);
+  }
+  sprites = sprites.filter(s => !s.die || s.die > 0.001);
+
+  // 氧气泡：亮灯时按各类生产者的产氧速度冒泡。
+  const I = lightAt(j.light, Math.floor(hourNow()));
+  if (I > 0) for (const [k, rate] of o2Rates(j, I)) {
+    if (bubbles.length >= 20 || rng() > rate * 0.5 * dt) continue;
+    const src = sprites.filter(s => s.kind === k && !s.die);
+    if (!src.length) continue;
+    const s = src[Math.floor(rng() * src.length)];
+    const p = k === 'plant' ? { x: s.bx + s.lean * 0.6, y: z.floorY - s.h * (0.4 + rng() * 0.6) }
+      : k === 'moss' ? { x: ROCK.x + ROCK.rx * Math.sin(s.a), y: z.baseY - ROCK.ry * Math.cos(s.a) - s.r }
+      : { x: s.x, y: s.y };
+    bubbles.push({ x: p.x, y: p.y, r: 1.5 + rng() * 2.2, vy: 26 + rng() * 22, ph: rng() * 6 });
+  }
+  for (const b of bubbles) { b.y -= b.vy * dt; b.ph += dt * 5; }
+  bubbles = bubbles.filter(b => b.y > WATER_TOP + 2);
+
+  for (const p of parts) { p.life -= dt; p.vy += (p.g || 0) * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.rot = (p.rot || 0) + (p.spin || 0) * dt; }
+  parts = parts.filter(p => p.life > 0);
+  for (const t of toasts) t.t -= dt;
+  toasts = toasts.filter(t => t.t > 0);
+  for (const k in bump) bump[k] = Math.max(0, bump[k] - dt * 4);
+  for (const k in flash) flash[k] = Math.max(0, flash[k] - dt * 0.8);
+  budgetFlash = Math.max(0, budgetFlash - dt * 2.5);
+  if (lidT < 1) {
+    lidT = Math.min(1, lidT + dt / 0.35);
+    if (lidT === 1) { shake = 1; burst(240, 120, 14, ['#d7b58a', '#ffffff', '#a3e0ff'], 140); }
+  }
+  shake = Math.max(0, shake - dt * 4);
+  if (phase === 'end') endT += dt;
+}
+function burst(x, y, n, colors, sp) {
+  for (let i = 0; i < n; i++) {
+    const a = rng() * Math.PI * 2, v = sp * (0.4 + rng() * 0.6);
+    parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 30, g: 260, life: 0.5 + rng() * 0.3, max: 0.8,
+      r: 2 + rng() * 2.5, color: colors[Math.floor(rng() * colors.length)] });
+  }
+}
+function confetti() {
+  const colors = ['#4caf7a', '#9ccc65', '#ffd54f', '#a3e0ff', '#ffffff', '#ff8a65'];
+  for (let i = 0; i < 70; i++) parts.push({ x: rng() * W, y: -20 - rng() * 200, vx: (rng() - 0.5) * 60, vy: 60 + rng() * 80, g: 40,
+    life: 4 + rng() * 2, max: 6, r: 3 + rng() * 3, leaf: true, rot: rng() * 6, spin: (rng() - 0.5) * 8,
+    color: colors[Math.floor(rng() * colors.length)] });
+}
+
+// ---------- 画面 ----------
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const view = { s: 1, ox: 0, oy: 0, dpr: 1, w: 0, h: 0 };
+// 用 clientWidth 而不是 innerWidth：手机上画布一旦过宽，innerWidth 会被撑大，越撑越大。
+function resize() {
+  view.dpr = window.devicePixelRatio || 1;
+  view.w = document.documentElement.clientWidth;
+  view.h = document.documentElement.clientHeight;
+  canvas.width = view.w * view.dpr;
+  canvas.height = view.h * view.dpr;
+  canvas.style.width = view.w + 'px';
+  canvas.style.height = view.h + 'px';
+  view.s = Math.min(view.w / W, view.h / H);
+  view.ox = (view.w - W * view.s) / 2;
+  view.oy = (view.h - H * view.s) / 2;
+}
+window.addEventListener('resize', resize);
+resize();
+
+let ui = [], mouse = { x: -1, y: -1 };
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const easeOutBack = t => 1 + 2.70158 * Math.pow(t - 1, 3) + 1.70158 * Math.pow(t - 1, 2);
+const easeOutCubic = t => 1 - Math.pow(1 - t, 3);
+function rgb(hex) { const n = parseInt(hex.slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255]; }
+function mix(a, b, t, alpha) {
+  const p = rgb(a), q = rgb(b), c = p.map((v, i) => Math.round(v + (q[i] - v) * t));
+  return `rgba(${c[0]},${c[1]},${c[2]},${alpha === undefined ? 1 : alpha})`;
+}
+function rr(x, y, w, h, r) { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); ctx.fill(); }
+function text(s, x, y, size, color, weight, align) {
+  ctx.font = `${weight || 700} ${size}px ${FONT}`; ctx.fillStyle = color;
+  ctx.textAlign = align || 'center'; ctx.textBaseline = 'middle'; ctx.fillText(s, x, y);
+}
+// 估算宽度换行：中文按一个字号宽，ASCII 按半个（不依赖 measureText，测试桩里也能跑）。
+function wrap(s, maxW, size) {
+  const lines = []; let line = '', w = 0;
+  for (const ch of s) {
+    const cw = ch.charCodeAt(0) < 0x2e80 ? size * 0.55 : size;
+    if (w + cw > maxW && line) { lines.push(line); line = ''; w = 0; }
+    line += ch; w += cw;
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+function hovered(x, y, w, h) { return mouse.x >= x && mouse.x < x + w && mouse.y >= y && mouse.y < y + h; }
+function button(x, y, w, h, label, enabled, fn, opt) {
+  const o = opt || {}, hov = enabled && hovered(x, y, w, h);
+  ctx.fillStyle = 'rgba(0,0,0,.12)'; if (enabled) rr(x, y + 3, w, h, o.r || 14);
+  ctx.fillStyle = enabled ? (o.color || '#3f9a6a') : (o.off || '#c9d3cd');
+  if (hov) ctx.fillStyle = o.hover || '#4caf7a';
+  rr(x, y, w, h, o.r || 14);
+  text(label, x + w / 2, y + h / 2 + 1, o.size || 20, enabled ? (o.ink || '#fff') : '#8a978f', o.weight || 800);
+  if (enabled) ui.push({ x, y, w, h, fn });
+}
+
+function daylight(light, hourF) {
+  const L = LIGHTS[light], c = (hourF + 6) % 24;
+  return clamp(c - L.on + 0.5, 0, 1) * (1 - clamp(c - L.off + 0.5, 0, 1));
+}
+const STARS = (() => { const r = mulberry32(5); return Array.from({ length: 40 }, () => [r() * W, r() * H * 0.9, r() * 1.4 + 0.4, r() * 6]); })();
+const GRAIN = (() => { const r = mulberry32(9); return Array.from({ length: 70 }, () => [r(), r(), r()]); })();
+function drawBackground(dayK) {
+  let g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#cfefff'); g.addColorStop(1, '#f7fbff');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  if (dayK < 1) {
+    ctx.globalAlpha = 1 - dayK;
+    g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, '#0e1a33'); g.addColorStop(1, '#1d2c4f');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    for (const [x, y, r, ph] of STARS) {
+      ctx.globalAlpha = (1 - dayK) * (0.5 + 0.5 * Math.sin(gameT * 1.5 + ph));
+      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+}
+
+function jarPath() {
+  ctx.beginPath();
+  ctx.moveTo(96, 56); ctx.lineTo(96, 76);
+  ctx.bezierCurveTo(96, 98, 8, 92, 8, 152);
+  ctx.lineTo(8, 478); ctx.quadraticCurveTo(8, 526, 56, 526);
+  ctx.lineTo(304, 526); ctx.quadraticCurveTo(352, 526, 352, 478);
+  ctx.lineTo(352, 152);
+  ctx.bezierCurveTo(352, 92, 264, 98, 264, 76);
+  ctx.lineTo(264, 56); ctx.closePath();
+}
+function drawEmoji(ch, x, y, size, rot, flipX, flipY, alpha) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(rot || 0); ctx.scale(flipX ? -1 : 1, flipY ? -1 : 1);
+  ctx.globalAlpha = alpha;
+  ctx.font = `${size}px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(ch, 0, 0);
+  ctx.restore();
+}
+// 精灵出生弹出、消失渐隐（翻转、下沉）的缩放与透明度。
+function life(s) { return { k: easeOutBack(clamp(s.age / 0.35, 0, 1)), a: s.die ? s.die : 1 }; }
+
+function drawJar(j, ox, oy, sc, hourF) {
+  const z = zones(j), lit = lightAt(j.light, Math.floor(hourF)) > 0, I = LIGHTS[j.light].I;
+  ctx.save(); ctx.translate(ox, oy); ctx.scale(sc, sc);
+
+  if (j.light === 'lamp') {
+    if (lit) {
+      const g = ctx.createRadialGradient(180, 30, 4, 180, 30, 300);
+      g.addColorStop(0, 'rgba(255,230,150,.55)'); g.addColorStop(1, 'rgba(255,230,150,0)');
+      ctx.fillStyle = g; ctx.fillRect(-120, -40, 600, 560);
+    }
+    ctx.strokeStyle = '#555'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(180, -16); ctx.lineTo(180, 6); ctx.stroke();
+    ctx.fillStyle = '#37474f'; ctx.beginPath();
+    ctx.moveTo(160, 6); ctx.lineTo(200, 6); ctx.lineTo(222, 26); ctx.lineTo(138, 26); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = lit ? '#fff3c4' : '#9e9e9e'; ctx.beginPath(); ctx.ellipse(180, 27, 22, 5, 0, 0, 7); ctx.fill();
+  }
+
+  ctx.save();
+  jarPath(); ctx.clip();
+  ctx.fillStyle = 'rgba(255,255,255,.10)'; ctx.fillRect(0, 50, 360, 480);
+  // 水：浅蓝 + 藻类的绿 + 废物的褐。
+  const wy = WATER_TOP;
+  ctx.fillStyle = 'rgba(163,224,255,.35)'; ctx.fillRect(0, wy, 360, 420);
+  ctx.fillStyle = `rgba(76,175,80,${Math.min(0.55, j.algae / 90)})`; ctx.fillRect(0, wy, 360, 420);
+  ctx.fillStyle = `rgba(122,90,58,${Math.min(0.35, j.W / 150)})`; ctx.fillRect(0, wy, 360, 420);
+  let g = ctx.createLinearGradient(0, wy, 0, 526);
+  g.addColorStop(0, 'rgba(255,255,255,.12)'); g.addColorStop(1, 'rgba(0,40,80,.14)');
+  ctx.fillStyle = g; ctx.fillRect(0, wy, 360, 420);
+  if (lit) {
+    ctx.fillStyle = `rgba(255,255,240,${0.06 * I})`;
+    for (let i = 0; i < 4; i++) {
+      const x = 40 + i * 85 + Math.sin(gameT * 0.4 + i) * 10;
+      ctx.beginPath(); ctx.moveTo(x, wy); ctx.lineTo(x + 34, wy); ctx.lineTo(x - 30, 526); ctx.lineTo(x - 70, 526); ctx.closePath(); ctx.fill();
+    }
+  }
+
+  // 瓶底：沙、炭、沉积物（自下而上）。
+  if (j.sand) {
+    const top = 522 - 18 * j.sand;
+    g = ctx.createLinearGradient(0, top, 0, 526);
+    g.addColorStop(0, '#f0d9a0'); g.addColorStop(1, '#c9a368');
+    ctx.fillStyle = g; ctx.fillRect(0, top, 360, 30);
+    ctx.fillStyle = 'rgba(140,100,50,.35)';
+    for (const [a, b, c] of GRAIN) { ctx.beginPath(); ctx.arc(a * 360, top + 2 + b * (18 * j.sand), 0.8 + c, 0, 7); ctx.fill(); }
+  }
+  if (j.char) {
+    ctx.fillStyle = '#222'; ctx.fillRect(0, z.baseY, 360, 10);
+    ctx.fillStyle = '#3a3a3a';
+    for (let i = 0; i < 18; i++) { ctx.beginPath(); ctx.ellipse(10 + i * 20, z.baseY + 2, 7, 3, 0, Math.PI, 0); ctx.fill(); }
+  }
+  if (z.sedH > 0.5) {
+    ctx.fillStyle = '#6d4c41'; ctx.beginPath(); ctx.moveTo(0, z.baseY);
+    for (let x = 0; x <= 360; x += 20) ctx.lineTo(x, z.floorY + Math.sin(x * 0.07 + 1) * Math.min(2, z.sedH / 3));
+    ctx.lineTo(360, z.baseY); ctx.closePath(); ctx.fill();
+  }
+  for (const s of sprites) if (s.kind === 'bact') {
+    const { k, a } = life(s), y = z.sedH > 3 ? z.baseY - z.sedH / 2 : z.floorY - 3;
+    ctx.globalAlpha = a * 0.4 * (0.55 + 0.45 * Math.sin(gameT * 3 + s.ph));
+    ctx.fillStyle = '#ab47bc'; const r = 4 * k;
+    ctx.beginPath(); ctx.moveTo(s.x, y - r); ctx.lineTo(s.x + r / 3, y - r / 3); ctx.lineTo(s.x + r, y); ctx.lineTo(s.x + r / 3, y + r / 3);
+    ctx.lineTo(s.x, y + r); ctx.lineTo(s.x - r / 3, y + r / 3); ctx.lineTo(s.x - r, y); ctx.lineTo(s.x - r / 3, y - r / 3); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  // 石头：苔藓和跳虫的家。
+  g = ctx.createLinearGradient(0, z.baseY - ROCK.ry, 0, z.baseY);
+  g.addColorStop(0, '#b0b4b8'); g.addColorStop(1, '#5f6368');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(ROCK.x, z.baseY, ROCK.rx, ROCK.ry, 0, Math.PI, 0); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,.25)'; ctx.beginPath(); ctx.ellipse(ROCK.x - 22, z.baseY - 30, 18, 6, -0.3, 0, 7); ctx.fill();
+  for (const s of sprites) if (s.kind === 'moss') {
+    const { k, a } = life(s), r = s.r * k;
+    const x = ROCK.x + ROCK.rx * 0.96 * Math.sin(s.a), y = z.baseY - ROCK.ry * 0.96 * Math.cos(s.a);
+    ctx.globalAlpha = a;
+    ctx.fillStyle = '#689f38'; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
+    ctx.fillStyle = '#9ccc65'; ctx.beginPath(); ctx.arc(x - r * 0.3, y - r * 0.3, r * 0.6, 0, 7); ctx.fill();
+    ctx.fillStyle = '#c5e1a5'; ctx.beginPath(); ctx.arc(x - r * 0.4, y - r * 0.45, r * 0.22, 0, 7); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  // 水草：二次曲线茎，叶子左右交替。
+  for (const s of sprites) if (s.kind === 'plant') {
+    const { a } = life(s), h = s.h * (s.die ? s.die : 1), sway = Math.sin(gameT * 1.1 + s.ph) * 6 * (h / 120);
+    const x0 = s.bx, y0 = z.floorY + 2, cx = s.bx + s.lean, cy = y0 - h * 0.55, x1 = s.bx + s.lean * 0.6 + sway, y1 = y0 - h;
+    const at = u => ({ x: (1 - u) * (1 - u) * x0 + 2 * u * (1 - u) * cx + u * u * x1, y: (1 - u) * (1 - u) * y0 + 2 * u * (1 - u) * cy + u * u * y1 });
+    ctx.globalAlpha = a;
+    ctx.strokeStyle = '#2e7d32'; ctx.lineWidth = 4; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.quadraticCurveTo(cx, cy, x1, y1); ctx.stroke();
+    const n = Math.floor(h / 26);
+    for (let i = 1; i <= n; i++) {
+      const p = at(i / (n + 1)), side = i % 2 ? 1 : -1;
+      ctx.fillStyle = i % 2 ? '#43a047' : '#388e3c';
+      ctx.beginPath(); ctx.ellipse(p.x + side * 9, p.y - 3, 11, 4, side * -0.6 + Math.sin(gameT + s.ph + i) * 0.1, 0, 7); ctx.fill();
+    }
+    ctx.fillStyle = '#66bb6a'; ctx.beginPath(); ctx.ellipse(x1, y1 - 4, 4, 9, sway * 0.03, 0, 7); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+  for (const s of sprites) if (s.kind === 'algae') {
+    const { k, a } = life(s);
+    ctx.globalAlpha = a; ctx.fillStyle = s.ph > 3 ? '#4caf50' : '#7cb342';
+    ctx.beginPath(); ctx.arc(s.x, s.y, 1.7 * k, 0, 7); ctx.fill(); ctx.globalAlpha = 1;
+  }
+  for (const s of sprites) if (s.kind === 'spring') {
+    const { k, a } = life(s);
+    ctx.globalAlpha = a; ctx.fillStyle = '#78909c';
+    ctx.beginPath(); ctx.arc(s.x, s.y, 2 * k, 0, 7); ctx.fill(); ctx.globalAlpha = 1;
+  }
+  for (const s of sprites) if (s.kind === 'snail') {
+    const { k, a } = life(s), p = snailPos(z, s.s);
+    drawEmoji('🐌', p.x, p.y + (s.die ? (1 - s.die) * 10 : 0), 22 * k, p.rot, s.dir > 0, !!s.die, a);
+  }
+  for (const s of sprites) if (s.kind === 'shrimp') {
+    const { k, a } = life(s), y = s.y + Math.sin(gameT * 2.2 + s.ph) * 6;
+    drawEmoji('🦐', s.x, y, 24 * k, Math.sin(gameT * 2.2 + s.ph) * 0.12, s.vx > 0, !!s.die, a);
+  }
+  for (const b of bubbles) {
+    const x = b.x + Math.sin(b.ph) * 1.5;
+    ctx.fillStyle = 'rgba(255,255,255,.3)'; ctx.strokeStyle = 'rgba(255,255,255,.85)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(x, b.y, b.r, 0, 7); ctx.fill(); ctx.stroke();
+  }
+  ctx.strokeStyle = 'rgba(255,255,255,.6)'; ctx.lineWidth = 2; ctx.beginPath();
+  for (let x = 0; x <= 360; x += 8) ctx.lineTo(x, wy + Math.sin(x * 0.05 + gameT * 1.6) * 1.6);
+  ctx.stroke();
+  ctx.restore();
+
+  // 玻璃：轮廓、高光、瓶口。
+  jarPath();
+  ctx.strokeStyle = 'rgba(255,255,255,.75)'; ctx.lineWidth = 6; ctx.stroke();
+  ctx.strokeStyle = 'rgba(40,80,100,.35)'; ctx.lineWidth = 1.5; ctx.stroke();
+  ctx.fillStyle = 'rgba(255,255,255,.28)'; rr(22, 170, 12, 250, 6); rr(22, 432, 12, 26, 6);
+  ctx.fillStyle = 'rgba(255,255,255,.16)'; rr(330, 200, 7, 120, 4);
+  ctx.fillStyle = 'rgba(255,255,255,.55)'; rr(88, 50, 184, 12, 6);
+  ctx.strokeStyle = 'rgba(40,80,100,.3)'; ctx.lineWidth = 1; ctx.stroke();
+
+  // 软木塞：配置时悬在瓶口上方，封瓶时落下。
+  const open = { dx: 112, dy: -36 + Math.sin(gameT * 2) * 3, rot: 0.32 };
+  const p = phase === 'setup' ? 0 : lidT * lidT, q = 1 - p;
+  ctx.save();
+  ctx.translate(180 + open.dx * q, 53 + open.dy * q); ctx.rotate(open.rot * q);
+  g = ctx.createLinearGradient(0, -20, 0, 20);
+  g.addColorStop(0, '#d9ad78'); g.addColorStop(1, '#a8743f');
+  ctx.fillStyle = g; rr(-76, -19, 152, 38, 8);
+  ctx.fillStyle = '#e6c08f'; rr(-76, -19, 152, 9, 6);
+  ctx.fillStyle = 'rgba(110,70,30,.35)';
+  for (const [a, b] of GRAIN.slice(0, 16)) { ctx.beginPath(); ctx.arc(-68 + a * 136, -6 + b * 22, 1.6, 0, 7); ctx.fill(); }
+  ctx.restore();
+  ctx.restore();
+}
+
+function drawSetup() {
+  drawBackground(1);
+  const cost = costOf(setup), left = BUDGET - cost;
+  text('生态瓶', 20, 26, 30, '#1f3a2e', 900, 'left');
+  text('封上盖子之后，你就再也不能插手了。', 20, 52, 13, '#5b7466', 500, 'left');
+  const bf = budgetFlash;
+  ctx.fillStyle = bf ? mix('#ffffff', '#ffcdd2', bf, 0.9) : 'rgba(255,255,255,.85)'; rr(344, 14, 120, 36, 18);
+  text(`🐚 剩余 ${left}`, 404, 33, 17, bf ? mix('#1f3a2e', '#c62828', bf) : '#1f3a2e', 800);
+
+  drawJar(viewJar(), 240 - 180 * 0.604, 76, 0.604, 6);
+  ctx.fillStyle = 'rgba(255,255,255,.7)'; rr(16, 98, 92, 52, 12); rr(372, 98, 92, 52, 12);
+  text('花费', 62, 113, 12, '#5b7466', 600);
+  text(`${cost} / ${BUDGET}`, 62, 134, 16, '#1f3a2e', 800);
+  text('光照', 418, 113, 12, '#5b7466', 600);
+  text(`${LIGHT_INFO[setup.light].icon} ${LIGHT_INFO[setup.light].name}`, 418, 134, 16, '#1f3a2e', 800);
+
+  wrap(hint, 440, 13).slice(0, 2).forEach((l, i, a) => text(l, W / 2, 402 + (i - (a.length - 1) / 2) * 16, 13, '#2f5a45', 600));
+
+  ['shade', 'window', 'lamp'].forEach((key, i) => {
+    const x = 20 + i * 150, y = 422, on = setup.light === key, info = LIGHT_INFO[key];
+    ctx.fillStyle = on ? '#e3f4e9' : hovered(x, y, 140, 56) ? '#ffffff' : 'rgba(255,255,255,.75)'; rr(x, y, 140, 56, 14);
+    if (on) { ctx.strokeStyle = '#3f9a6a'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.roundRect(x, y, 140, 56, 14); ctx.stroke(); }
+    text(`${info.icon} ${info.name}`, x + 70, y + 21, 17, '#1f3a2e', 800);
+    text(info.sub, x + 70, y + 42, 11, '#5b7466', 500);
+    ui.push({ x, y, w: 140, h: 56, fn: () => setLight(key) });
+  });
+
+  ITEMS.forEach((it, i) => {
+    const x = 20 + (i % 3) * 150, y = 490 + Math.floor(i / 3) * 80, n = setup[it.key];
+    const canAdd = n < it.max && cost + it.cost <= BUDGET;
+    ctx.fillStyle = n ? '#ffffff' : 'rgba(255,255,255,.72)'; rr(x, y, 140, 74, 14);
+    if (n) { ctx.strokeStyle = 'rgba(63,154,106,.55)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.roundRect(x, y, 140, 74, 14); ctx.stroke(); }
+    text(it.icon, x + 18, y + 19, 18, '#000', 400);
+    text(it.name, x + 34, y + 20, 15, '#1f3a2e', 800, 'left');
+    text(`🐚${it.cost}`, x + 132, y + 20, 12, '#7a8b80', 600, 'right');
+    const s = 1 + 0.35 * (bump[it.key] || 0);
+    ctx.save(); ctx.translate(x + 64, y + 54); ctx.scale(s, s);
+    text(String(n), 0, 0, 20, n ? '#1f3a2e' : '#a6b2ab', 900);
+    ctx.restore();
+    text(`/${it.max}`, x + 74, y + 58, 10, '#a6b2ab', 500, 'left');
+    const minus = () => { if (adjust(it.key, -1)) burst(x + 26, y + 54, 4, ['#b0bec5'], 60); };
+    const plus = () => { if (adjust(it.key, 1)) burst(x + 114, y + 54, 9, ['#4caf7a', '#9ccc65', '#ffd54f'], 110); };
+    button(x + 6, y + 38, 40, 32, '−', n > 0, minus, { size: 20, r: 10, color: '#e8efe9', ink: '#3f6b54', hover: '#d6e6da', off: '#f1f3f2' });
+    button(x + 94, y + 38, 40, 32, '+', canAdd, plus, { size: 20, r: 10, color: '#3f9a6a', hover: '#4caf7a', off: '#f1f3f2' });
+    // 点「+」被拒时也要显示说明并提示预算，所以禁用的按钮下面仍铺一块区域。
+    ui.push({ x: x + 94, y: y + 38, w: 40, h: 32, fn: () => adjust(it.key, 1) });
+    ui.push({ x, y, w: 140, h: 74, fn: () => { hint = it.hint; tone(600, 600, 0.03, 'sine', 0.2); } });
+  });
+
+  const problem = sealProblem(setup);
+  button(20, 740, 440, 52, problem || '封瓶', !problem, seal, { size: problem ? 17 : 22 });
+}
+
+function drawRun() {
+  const j = jar, hourF = hourNow(), dayK = daylight(j.light, hourF);
+  drawBackground(dayK);
+  const ink = mix('#e8f1ff', '#1f3a2e', dayK), sub = mix('#a9bccf', '#5b7466', dayK);
+  const panel = mix('#13243d', '#ffffff', dayK, 0.62);
+
+  ctx.save();
+  if (shake) ctx.translate((rng() - 0.5) * 6 * shake, (rng() - 0.5) * 6 * shake);
+  drawJar(j, 60, 70, 1, hourF);
+  ctx.restore();
+
+  // HUD
+  const day = phase === 'end' ? result.day : Math.min(100, j.day + 1), clock = Math.floor((hourF + 6) % 24);
+  const lit = lightAt(j.light, Math.floor(hourF)) > 0;
+  text(`第 ${day} 天`, 16, 22, 22, ink, 900, 'left');
+  text(`${lit ? '☀️' : '🌙'} ${String(clock).padStart(2, '0')}:00 · ${LIGHT_INFO[j.light].name}`, 16, 45, 13, sub, 600, 'left');
+  const btns = [['⏸', 0], ['1×', 1], ['2×', 2], ['4×', 4], ['⏭', -1]];
+  btns.forEach(([label, s], i) => {
+    const x = 226 + i * 50, y = 10, active = phase === 'run' && s >= 0 && speed === s;
+    const run = phase === 'run';
+    ctx.fillStyle = active ? '#3f9a6a' : run && hovered(x, y, 44, 36) ? mix('#13243d', '#ffffff', dayK, 0.85) : panel;
+    rr(x, y, 44, 36, 10);
+    text(label, x + 22, y + 19, label.length > 1 && s >= 0 ? 15 : 17, active ? '#fff' : ink, 800);
+    if (run) ui.push({ x, y, w: 44, h: 36, fn: () => { tone(700, 700, 0.03, 'square', 0.12); s < 0 ? skipToEnd() : s === 0 ? togglePause() : setSpeed(s); } });
+  });
+  ctx.fillStyle = panel; rr(16, 58, 448, 5, 3);
+  ctx.fillStyle = '#4caf7a'; rr(16, 58, 448 * clamp((j.hour + (phase === 'run' ? acc : 0)) / 2400, 0, 1), 5, 3);
+  if (phase === 'run' && speed === 0) text('已暂停 · 空格继续', W / 2, 92, 13, ink, 700);
+
+  // 环境指标
+  const Wt = wasteLimit(j);
+  const gauges = [
+    ['氧气', j.O, 20, '#3b82f6', j.O < ENV.Olow, ENV.Olow],
+    ['二氧化碳', j.C, 20, '#90a4ae', false, null],
+    ['养分', j.N, 40, '#66bb6a', false, null],
+    ['废物', j.W, 60, '#8d6e63', j.W > Wt, Wt],
+  ];
+  gauges.forEach(([name, v, max, color, alert, mark], i) => {
+    const x = 16 + (i % 2) * 228, y = 610 + Math.floor(i / 2) * 41, w = 220;
+    ctx.fillStyle = panel; rr(x, y, w, 36, 10);
+    const pulse = alert ? 0.6 + 0.4 * Math.sin(gameT * 10) : 1;
+    text(name, x + 10, y + 12, 12, alert ? '#e53935' : sub, 700, 'left');
+    text(v.toFixed(1), x + w - 10, y + 12, 12, alert ? '#e53935' : ink, 800, 'right');
+    ctx.fillStyle = mix('#000000', '#000000', 0, 0.12); rr(x + 10, y + 23, w - 20, 7, 4);
+    ctx.globalAlpha = pulse; ctx.fillStyle = alert ? '#e53935' : color;
+    rr(x + 10, y + 23, Math.max(4, (w - 20) * clamp(v / max, 0, 1)), 7, 4); ctx.globalAlpha = 1;
+    if (mark !== null && mark < max) { ctx.fillStyle = '#e53935'; ctx.fillRect(x + 10 + (w - 20) * mark / max - 1, y + 20, 2, 13); }
+  });
+
+  // 物种
+  SPECIES.forEach((k, i) => {
+    const x = 16 + i * 64.6, y = 706, v = j[k], placed = setup[k] > 0, f = flash[k] || 0;
+    ctx.fillStyle = f ? mix('#ffffff', '#ef9a9a', f, 0.85) : panel; rr(x, y, 60, 78, 12);
+    ctx.globalAlpha = v > 0 ? 1 : 0.35;
+    text(ITEM[k].icon, x + 30, y + 22, 22, '#000', 400);
+    text(v > 0 ? String(Math.round(v)) : placed ? '✕' : '—', x + 30, y + 48, 16, v > 0 ? ink : placed ? '#e53935' : sub, 900);
+    text(ITEM[k].name, x + 30, y + 66, 10, sub, 600);
+    ctx.globalAlpha = 1;
+  });
+
+  // 提示
+  toasts.forEach((t, i) => {
+    const a = Math.min(1, t.t * 3, (2.5 - t.t) * 6), y = 104 + i * 36 - (1 - Math.min(1, (2.5 - t.t) * 6)) * 10;
+    ctx.globalAlpha = a;
+    const w = Math.min(420, t.text.length * 15 + 40);
+    ctx.fillStyle = t.color; rr(W / 2 - w / 2, y, w, 30, 15);
+    text(t.text, W / 2, y + 16, 15, '#fff', 800);
+    ctx.globalAlpha = 1;
+  });
+}
+
+function drawEnd() {
+  const r = result, d = DIAG[r.win ? 'win' : r.diagnosis], k = easeOutCubic(clamp(endT / 0.45, 0, 1));
+  ctx.fillStyle = `rgba(10,20,30,${0.45 * k})`; ctx.fillRect(0, 0, W, H);
+  ctx.save(); ctx.translate(0, (1 - k) * 60); ctx.globalAlpha = k;
+  ctx.fillStyle = '#fbfdf9'; rr(20, 40, 440, 720, 22);
+
+  let y = 86;
+  if (r.win) {
+    text('封瓶成功', W / 2, y, 30, '#1f3a2e', 900);
+    text('撑过了 100 天', W / 2, y + 34, 15, '#5b7466', 600);
+    for (let i = 0; i < 3; i++) {
+      const t = clamp((endT - 0.4 - i * 0.18) / 0.3, 0, 1), on = i < starsOf(r), s = on ? easeOutBack(t) : 1;
+      ctx.save(); ctx.translate(W / 2 + (i - 1) * 40, y + 72); ctx.scale(s, s);
+      text('★', 0, 0, 34, on ? '#f5b301' : '#dfe5e1', 900); ctx.restore();
+    }
+    text(`物种 ${r.species} × 100 + 健康天数 ${r.healthy} × 3 = ${r.score}`, W / 2, y + 108, 14, '#2f5a45', 700);
+    y += 134;
+  } else {
+    text('封瓶失败', W / 2, y, 30, '#1f3a2e', 900);
+    text(`第 ${r.day} 天，生态瓶崩溃了`, W / 2, y + 34, 15, '#c62828', 700);
+    y += 66;
+  }
+
+  const body = d.text.replace('{hypDay}', jar.hypDay || r.day).replace('{Wt}', wasteLimit(jar));
+  const lines = wrap(body, 384, 14), tips = d.tip ? wrap('建议：' + d.tip, 384, 14) : [];
+  const ch = 44 + lines.length * 21 + (tips.length ? 8 + tips.length * 21 : 0) + 6;
+  ctx.fillStyle = d.tint; rr(40, y, 400, ch, 16);
+  text(d.title, 56, y + 24, 19, '#1f3a2e', 900, 'left');
+  lines.forEach((l, i) => text(l, 56, y + 52 + i * 21, 14, '#3d5247', 500, 'left'));
+  tips.forEach((l, i) => text(l, 56, y + 60 + (lines.length + i) * 21, 14, '#2f7a52', 700, 'left'));
+
+  y += ch + 26;
+  drawChart(40, y, 400, clamp((endT - 0.3) / 1.2, 0, 1));
+  // 这一瓶的配置：方便「改一样再试」。
+  const recap = ITEMS.filter(it => setup[it.key]).map(it => `${it.icon}${setup[it.key]}`).join(' ');
+  text('这一瓶', W / 2, y + 290, 12, '#8a978f', 700);
+  wrap(`${recap} · ${LIGHT_INFO[setup.light].icon}${LIGHT_INFO[setup.light].name} · 🐚${costOf(setup)}`, 400, 14).slice(0, 2)
+    .forEach((l, i) => text(l, W / 2, y + 312 + i * 20, 14, '#3d5247', 600));
+  ctx.restore();
+  if (k === 1) button(60, 690, 360, 52, '再来一瓶', true, backToSetup);
+}
+
+function drawChart(x, y, w, prog) {
+  const rows = jar.history, last = r => r.day <= prog * 100 + 0.001, X = d => x + d / 100 * w;
+  const peak = Object.fromEntries(SPECIES.map(k => [k, Math.max(...rows.map(r => r[k]))]));
+  const present = SPECIES.filter(k => peak[k] > 0);
+  text('种群', x, y + 8, 13, '#5b7466', 800, 'left');
+  present.forEach((k, i) => {
+    const lx = x + 40 + i * 52;
+    ctx.fillStyle = SP_COLOR[k]; rr(lx, y + 4, 10, 8, 2);
+    text(`${ITEM[k].icon}${Math.round(peak[k])}`, lx + 13, y + 9, 11, '#3d5247', 700, 'left');
+  });
+  const py = y + 22, ph = 124, py2 = y + 176, ph2 = 66;
+  ctx.fillStyle = 'rgba(31,58,46,.05)'; rr(x, py, w, ph, 8); rr(x, py2, w, ph2, 8);
+  const line = (key, top, hgt, max, color, lw) => {
+    ctx.strokeStyle = color; ctx.lineWidth = lw || 2; ctx.lineJoin = 'round'; ctx.beginPath();
+    rows.filter(last).forEach((r, i) => {
+      const yy = top + hgt - 4 - clamp(r[key] / max, 0, 1) * (hgt - 10);
+      i ? ctx.lineTo(X(r.day), yy) : ctx.moveTo(X(r.day), yy);
+    });
+    ctx.stroke();
+  };
+  for (const k of present) line(k, py, ph, peak[k], SP_COLOR[k]);
+  text('环境', x, y + 162, 13, '#5b7466', 800, 'left');
+  ctx.fillStyle = '#3b82f6'; rr(x + 40, y + 158, 10, 8, 2); text('最低氧气', x + 53, y + 163, 11, '#3d5247', 700, 'left');
+  ctx.fillStyle = '#8d6e63'; rr(x + 116, y + 158, 10, 8, 2); text('废物', x + 129, y + 163, 11, '#3d5247', 700, 'left');
+  ctx.setLineDash([4, 4]); ctx.strokeStyle = 'rgba(59,130,246,.55)'; ctx.lineWidth = 1;
+  const y4 = py2 + ph2 - 4 - 4 / 20 * (ph2 - 10);
+  ctx.beginPath(); ctx.moveTo(x, y4); ctx.lineTo(x + w, y4); ctx.stroke(); ctx.setLineDash([]);
+  line('W', py2, ph2, 60, '#8d6e63');
+  line('Omin', py2, ph2, 20, '#3b82f6');
+  if (!result.win && prog >= result.day / 100) {
+    ctx.setLineDash([5, 4]); ctx.strokeStyle = '#e53935'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(X(result.day), py); ctx.lineTo(X(result.day), py2 + ph2); ctx.stroke(); ctx.setLineDash([]);
+  }
+  [0, 25, 50, 75, 100].forEach(d => text(String(d), clamp(X(d), x + 8, x + w - 10), py2 + ph2 + 10, 10, '#8a978f', 600));
+}
+
+function draw() {
+  ui = [];
+  ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
+  ctx.fillStyle = '#dcefe6'; ctx.fillRect(0, 0, view.w, view.h);
+  ctx.setTransform(view.s * view.dpr, 0, 0, view.s * view.dpr, view.ox * view.dpr, view.oy * view.dpr);
+  ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.clip();
+  if (phase === 'setup') drawSetup();
+  else {
+    drawRun();
+    if (phase === 'end') { ui = []; drawEnd(); }
+  }
+  for (const p of parts) {
+    ctx.globalAlpha = clamp(p.life / Math.min(0.4, p.max), 0, 1); ctx.fillStyle = p.color;
+    if (p.leaf) { ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.beginPath(); ctx.ellipse(0, 0, p.r * 1.6, p.r * 0.7, 0, 0, 7); ctx.fill(); ctx.restore(); }
+    else { ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 7); ctx.fill(); }
+  }
+  ctx.globalAlpha = 1;
+  if (muted) text('🔇', W - 14, H - 12, 12, '#000', 400);
+  ctx.restore();
+}
+
+// ---------- 输入（D12：Pointer Events，鼠标和触摸一条路径） ----------
+function toWorld(e) { return { x: (e.clientX - view.ox) / view.s, y: (e.clientY - view.oy) / view.s }; }
+canvas.addEventListener('pointerup', e => {
+  ensureAudio();
+  const p = toWorld(e), b = ui.find(b => p.x >= b.x && p.x < b.x + b.w && p.y >= b.y && p.y < b.y + b.h);
+  if (b) b.fn();
+});
+canvas.addEventListener('pointermove', e => {
+  if (e.pointerType !== 'mouse') return;
+  mouse = toWorld(e);
+  canvas.style.cursor = ui.some(b => mouse.x >= b.x && mouse.x < b.x + b.w && mouse.y >= b.y && mouse.y < b.y + b.h) ? 'pointer' : 'default';
+});
+window.addEventListener('keydown', e => {
+  ensureAudio();
+  if (e.code === 'KeyM') muted = !muted;
+  else if (e.code === 'Enter' || e.code === 'NumpadEnter') { if (phase === 'setup') seal(); else if (phase === 'end' && endT > 0.45) backToSetup(); }
+  else if (phase === 'run') {
+    if (e.code === 'Space') { e.preventDefault(); togglePause(); }
+    else if (e.code === 'Digit1') setSpeed(1);
+    else if (e.code === 'Digit2') setSpeed(2);
+    else if (e.code === 'Digit3') setSpeed(4);
+    else if (e.code === 'KeyS') skipToEnd();
+  }
+});
+
+let lastT = 0;
+function loop(now) {
+  const dt = Math.min(0.1, (now - lastT) / 1000 || 0);
+  lastT = now;
+  update(dt); draw();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+// 主站在水合后才监听消息，单发的 ready 可能丢；重复的 ready 主站会忽略。start 在封瓶时才发。
+emitMoYuFunEvent('ready');
+for (const ms of [500, 2000, 5000]) setTimeout(() => emitMoYuFunEvent('ready'), ms);
+</script>
+</body>
+</html>

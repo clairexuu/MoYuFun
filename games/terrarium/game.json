@@ -1,0 +1,30 @@
+{
+  "slug": "terrarium",
+  "name": "生态瓶",
+  "shortDescription": "封瓶前定好一切，然后只能看着它活下去，或者崩溃。",
+  "description": "用 100 贝壳往玻璃瓶里放藻类、水草、苔藓、小虾、螺、跳虫和细菌，铺上沙和炭，选好光照，然后封上盖子。之后的一百天你只能旁观：氧气、养分和废物此消彼长，任何失衡都可能让它崩溃。撑到第 100 天就算成功；失败时会告诉你它是怎么死的。",
+  "tags": ["模拟", "生态", "单人"],
+  "controls": [
+    { "input": "鼠标 / 触摸", "action": "增减生物、选光照、封瓶、调速度" },
+    { "input": "Enter", "action": "封瓶 / 再来一瓶" },
+    { "input": "空格", "action": "暂停或继续" },
+    { "input": "1 / 2 / 3", "action": "1× / 2× / 4× 速度" },
+    { "input": "S", "action": "跳到结局" },
+    { "input": "M", "action": "静音或恢复声音" }
+  ],
+  "cover": { "symbol": "瓶", "eyebrow": "SEALED ECOSYSTEM", "accent": "#4caf7a", "accentSecondary": "#a3e0ff" },
+  "sortOrder": 190,
+  "achievements": [
+    { "key": "sealed_100", "name": "百日生机", "description": "生态瓶撑到第 100 天。", "symbol": "生" },
+    { "key": "full_house", "name": "七族同瓶", "description": "第 100 天时七种生物全部存活。", "symbol": "七" },
+    { "key": "frugal", "name": "小本经营", "description": "花费不超过 60 贝壳，撑到第 100 天。", "symbol": "俭" },
+    { "key": "shade_win", "name": "背阴之地", "description": "选背阴光照，撑到第 100 天。", "symbol": "阴" },
+    { "key": "calm", "name": "风平浪静", "description": "100 天里每天都健康：氧气不低于 8，废物低于 15。", "symbol": "静" }
+  ],
+  "stats": [
+    { "key": "rounds", "name": "封瓶", "maxPerRound": 1 },
+    { "key": "wins", "name": "成功", "maxPerRound": 1 },
+    { "key": "days", "name": "存活天数", "maxPerRound": 100 },
+    { "key": "species", "name": "存活物种", "maxPerRound": 7 }
+  ]
+}
