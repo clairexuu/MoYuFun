@@ -1,6 +1,6 @@
 # 龙的当铺 (`dragon-pawn`)
 
-**Status:** Implemented 2026-10-02 (`games/dragon-pawn/v1/`), released locally; production publish follows (`pnpm game publish dragon-pawn v1`). Milestones: M1 ☑ · M2 ☑ · M3 ☑ (see notes).
+**Status:** Implemented and published to production 2026-10-02 (`pnpm game publish dragon-pawn v1`; the play page loads at www.moyufuns.com/play/dragon-pawn). Milestones: M1 ☑ · M2 ☑ · M3 ☑ (see notes).
 
 A management and appraisal game. You are a dragon running a pawnshop at the mouth of a dungeon. Heroes pawn treasures for gold before they descend. Check each treasure against the 鉴定手册 to catch forgeries, then haggle over the loan. Survivors repay with interest, except forgers you failed to catch, who abscond. The dead forfeit their pledge to your hoard, and a fake is worth nothing. Fill the hoard to 1000 金 by the end of day 7. Mouse or touch, single-player, about 8 minutes.
 
