@@ -1,6 +1,6 @@
 # 影子行者 (`shadow-walk`)
 
-**Status:** Implemented 2026-10-02 (`games/shadow-walk/v1/`), released locally; production publish follows (`pnpm game publish shadow-walk v1`). Milestones: M1 ☑ · M2 ☑ · M3 ☑ (see notes).
+**Status:** Implemented and published to production 2026-10-02 (`pnpm game publish shadow-walk v1`; the play page loads at www.moyufuns.com/play/shadow-walk). Milestones: M1 ☑ · M2 ☑ · M3 ☑ (see notes).
 
 A one-screen-per-level platformer where the ground is shadow. You are a small shadow creature who can only stand in shadow. Drag a lantern along its rail, and the shadows of crates, planks and windmill blades stretch, tilt and swing into bridges, ramps and lifts; lit space is air, and you fall through it. Ten hand-made levels make one round. Mouse or touch, with keyboard for movement; single-player.
 
