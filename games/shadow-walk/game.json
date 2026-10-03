@@ -1,0 +1,31 @@
+{
+  "slug": "shadow-walk",
+  "name": "影子行者",
+  "shortDescription": "拖动灯笼，让影子替你铺路。",
+  "description": "你是一只只能踩在影子上的小影怪。拖动轨道上的灯笼，箱子、木板和风车投下的影子会跟着伸长、倾斜、转动，变成桥、坡道和升降台。被照亮的地方踩不住，掉下去就重来。一共十关，走到每关的门口就算过关。",
+  "tags": ["闯关", "解谜", "单人"],
+  "controls": [
+    { "input": "A / D 或 ← / →", "action": "左右移动" },
+    { "input": "空格 / W / ↑", "action": "跳" },
+    { "input": "鼠标或手指拖动", "action": "沿轨道移动灯笼" },
+    { "input": "Q / E", "action": "用键盘移动灯笼" },
+    { "input": "屏幕按钮 ◀ ▶ 跳", "action": "触屏移动和跳" },
+    { "input": "R", "action": "重来本关" },
+    { "input": "M", "action": "静音或恢复声音" }
+  ],
+  "cover": { "symbol": "影", "eyebrow": "SHADOW PLATFORMER", "accent": "#ffcf5a", "accentSecondary": "#3a2f6b" },
+  "sortOrder": 120,
+  "achievements": [
+    { "key": "halfway", "name": "半影", "description": "通过第 5 关。", "symbol": "半" },
+    { "key": "crushed", "name": "被挤扁了", "description": "被移动的影子挤扁一次。", "symbol": "扁" },
+    { "key": "gold_5", "name": "疾影", "description": "一局内拿到 5 枚金牌。", "symbol": "金" },
+    { "key": "clear", "name": "影归", "description": "不跳过任何一关，走完全部十关。", "symbol": "归" },
+    { "key": "deathless", "name": "不见光", "description": "一次都没掉落或被挤扁，走完全部十关。", "symbol": "暗" }
+  ],
+  "stats": [
+    { "key": "rounds", "name": "对局", "maxPerRound": 1 },
+    { "key": "wins", "name": "通关", "maxPerRound": 1 },
+    { "key": "levels", "name": "过关", "maxPerRound": 10 },
+    { "key": "golds", "name": "金牌", "maxPerRound": 10 }
+  ]
+}

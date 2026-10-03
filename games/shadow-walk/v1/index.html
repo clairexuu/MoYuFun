@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>影子行者</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #120f1c;
+    user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+  #game { position: absolute; inset: 0; display: block; touch-action: none; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<script>
+'use strict';
+/* 影子行者：只能踩在影子上的解谜平台跳跃。设计文档：docs/games/shadow-walk.md */
+
+// ---------- 常量 ----------
+const W = 960, H = 540, C = 6, GW = W / C, GH = H / C;
+const PW = 18, PH = 24, DT = 1 / 60, LAMP_STEP = 240 * DT;
+const FONT = '"PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif';
+const EMOJI = '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif';
+const PUSH = [[0, -6], [0, -12], [0, -18], [0, -24], [-6, 0], [6, 0], [-12, 0], [12, 0], [0, 6], [0, 12]];
+const MEDAL = { gold: '🥇', silver: '🥈', bronze: '🥉' };
+
+const LEVELS = [
+  { name: '第一盏灯', hint: '拖动灯笼：灯越低，影子越长', gold: 15, silver: 30,
+    rail: [[60,60],[60,300]], lampStart: 0, spawn: [60,360], exit: [900,360],
+    ink: [[0,360,300,180],[720,360,240,180]], props: [['box',240,312,48,48]] },
+  { name: '背光', hint: '影子总是背着光', gold: 15, silver: 30,
+    rail: [[120,200],[880,200]], lampStart: 0, spawn: [60,360], exit: [900,360],
+    ink: [[0,360,240,180],[660,360,300,180]], props: [['box',660,312,48,48]] },
+  { name: '回头', hint: '灯在下面，影子就往上长', gold: 15, silver: 30,
+    rail: [[120,300],[120,470]], lampStart: 0, spawn: [60,480], exit: [520,170],
+    ink: [[0,480,960,60],[460,170,200,16]], props: [['box',240,420,96,12]] },
+  { name: '两岸', hint: '过了河，再把灯挪走', gold: 20, silver: 40,
+    rail: [[40,210],[920,210]], lampStart: 0.25, spawn: [60,360], exit: [900,360],
+    ink: [[0,360,220,180],[400,360,160,180],[740,360,220,180]], props: [['box',172,312,48,48],['box',740,312,48,48]] },
+  { name: '浮箱', hint: '箱子在动，影子也在动', gold: 15, silver: 30,
+    rail: [[60,100],[60,330]], lampStart: 0, spawn: [60,360], exit: [900,360],
+    ink: [[0,360,300,180],[720,360,240,180]], props: [['slide',252,300,48,48,0,-60,3]] },
+  { name: '风车', hint: '等风车转到合适的角度', gold: 15, silver: 30,
+    rail: [[60,150],[60,350]], lampStart: 0, spawn: [60,360], exit: [900,360],
+    ink: [[0,360,240,180],[720,360,240,180]], props: [['spin',270,354,72,10,0,60]] },
+  { name: '影墙', hint: '影子也能挡路', gold: 20, silver: 40,
+    rail: [[40,200],[300,200],[300,340],[920,340]], lampStart: 0, spawn: [60,360], exit: [900,360],
+    ink: [[0,360,220,180],[400,360,560,180]], props: [['box',172,312,48,48],['box',620,230,40,100]] },
+  { name: '大风车', hint: '大风车会把你托上去', gold: 15, silver: 30,
+    rail: [[60,150],[60,350]], lampStart: 0, spawn: [60,360], exit: [900,300],
+    ink: [[0,360,240,180],[720,300,240,240]], props: [['spin',270,354,72,10,0,60],['spin',270,354,72,10,90,60]] },
+  { name: '之字', hint: '一层一层往上爬', gold: 20, silver: 40,
+    rail: [[100,260],[100,490]], lampStart: 0, spawn: [40,498], exit: [460,60],
+    ink: [[0,498,960,42],[300,270,150,14],[420,60,160,14]], props: [['box',200,440,80,12],['box',330,222,60,12]] },
+  { name: '归影', hint: '最后一盏灯', gold: 25, silver: 50,
+    rail: [[40,160],[40,250],[700,250],[700,345],[940,345]], lampStart: 0, spawn: [60,360], exit: [920,360],
+    ink: [[0,360,200,180],[360,360,200,180],[760,360,200,180]], props: [['box',152,312,48,48],['spin',590,342,72,10,0,60],['box',830,246,40,90]] },
+];
+
+// 每关的录制解法：[帧数, 按键, 灯笼目标(轨道比例)?]；J 只在该段第一帧按下。用 ?rec 重新录制。
+const SOLUTIONS = [
+  [[61,'',0.8],[1,'RJ'],[57,'R'],[1,'RJ'],[167,'R'],[1,'RJ'],[68,'R']],
+  [[201,'',1],[1,'RJ'],[275,'R']],
+  [[45,'R'],[1,'RJ'],[25,'R'],[61,'',1],[150,'R'],[1,'LJ'],[63,'L']],
+  [[101,'',0],[1,'RJ'],[35,'R'],[1,'RJ'],[84,'R'],[1,'RJ'],[18,'R'],[60,''],[251,'',1],[1,'RJ'],[152,'R']],
+  [[91,'',0.5],[45,'R'],[1,'RJ'],[20,'R'],[1,''],[120,'R'],[1,'RJ'],[89,'R']],
+  [[52,'',0.7],[1,'RJ'],[68,'R'],[1,'RJ'],[212,'R']],
+  [[201,'',0],[1,'RJ'],[35,'R'],[1,'RJ'],[83,'R'],[1,'RJ'],[29,'R'],[301,'',0.6],[1,'RJ'],[142,'R']],
+  [[52,'',0.8],[1,'RJ'],[55,'R'],[1,'RJ'],[165,'R'],[1,'RJ'],[63,'R']],
+  [[45,'R'],[1,'RJ'],[15,'R'],[81,'',1],[120,'R'],[1,'LJ'],[50,'L'],[30,''],[91,'',0.2],[34,'L'],[1,'RJ'],[104,'R'],[1,'LJ'],[47,'L']],
+  [[61,'',0.037],[1,'RJ'],[100,'R'],[1,'RJ'],[48,'R'],[122,'',0.194],[1,'RJ'],[99,'R'],[60,''],[301,'',1],[1,'RJ'],[5,'R'],[1,'RJ'],[41,'R']],
+];
+
+// ---------- MoYuFun SDK v1 ----------
+const MOYUFUN_PARENT_ORIGIN = location.hostname === 'localhost'
+  ? 'http://localhost:3000'
+  : 'https://www.moyufuns.com';
+function emitMoYuFunEvent(type) {
+  if (window.parent === window) return;
+  window.parent.postMessage({ source: 'moyufun-game', version: 1, type }, MOYUFUN_PARENT_ORIGIN);
+}
+function emitMoYuFunAchievement(key) {
+  if (window.parent === window) return;
+  window.parent.postMessage({ source: 'moyufun-game', version: 1, type: 'achievement', key }, MOYUFUN_PARENT_ORIGIN);
+}
+// 战绩：每局结算时发送一次，在成就之后、end 之前；键和上限在 game.json 的 stats 中声明。
+function emitMoYuFunStats(stats) {
+  if (window.parent === window) return;
+  window.parent.postMessage({ source: 'moyufun-game', version: 1, type: 'stats', stats }, MOYUFUN_PARENT_ORIGIN);
+}
+// 成就：每局每个 key 最多发送一次；结算时的成就必须在 end 之前发送（主站在 end 后忽略成就）。
+let roundAchievements = new Set();
+function unlockAchievement(key) {
+  if (roundAchievements.has(key)) return;
+  roundAchievements.add(key);
+  emitMoYuFunAchievement(key);
+}
+
+// ---------- 音频 ----------
+let AC = null, master = null, muted = false;
+function ensureAudio() {
+  if (!AC) {
+    try {
+      AC = new (window.AudioContext || window.webkitAudioContext)();
+      master = AC.createGain(); master.gain.value = 0.2; master.connect(AC.destination);
+    } catch (err) { AC = null; }
+  }
+  if (AC && AC.state === 'suspended') AC.resume();
+}
+function tone(f0, f1, dur, type, vol, delay = 0) {
+  if (!AC || muted) return;
+  const t = AC.currentTime + delay, o = AC.createOscillator(), g = AC.createGain();
+  o.type = type || 'sine';
+  o.frequency.setValueAtTime(Math.max(1, f0), t);
+  o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t + dur);
+  g.gain.setValueAtTime(vol || 1, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  o.connect(g); g.connect(master); o.start(t); o.stop(t + dur + 0.03);
+}
+function noiseHit(dur, vol, fc) {
+  if (!AC || muted) return;
+  const t = AC.currentTime, len = Math.max(1, (dur * AC.sampleRate) | 0);
+  const buf = AC.createBuffer(1, len, AC.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+  const s = AC.createBufferSource(); s.buffer = buf;
+  const f = AC.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = fc;
+  const g = AC.createGain(); g.gain.value = vol;
+  s.connect(f); f.connect(g); g.connect(master); s.start(t);
+}
+
+// ---------- 几何（纯函数） ----------
+function propPoly(p, t) {
+  if (p[0] === 'box') { const [, x, y, w, h] = p; return [[x, y], [x + w, y], [x + w, y + h], [x, y + h]]; }
+  if (p[0] === 'spin') {
+    const [, cx, cy, len, th, a0, w] = p, a = (a0 + w * t) * Math.PI / 180;
+    const ux = Math.cos(a), uy = Math.sin(a), nx = -uy, ny = ux, hl = len / 2, ht = th / 2;
+    return [[cx - ux * hl - nx * ht, cy - uy * hl - ny * ht], [cx + ux * hl - nx * ht, cy + uy * hl - ny * ht],
+      [cx + ux * hl + nx * ht, cy + uy * hl + ny * ht], [cx - ux * hl + nx * ht, cy - uy * hl + ny * ht]];
+  }
+  const [, x, y, w, h, dx, dy, T] = p, f = (1 - Math.cos(2 * Math.PI * t / T)) / 2;  // slide
+  return propPoly(['box', x + dx * f, y + dy * f, w, h], 0);
+}
+const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+function inside(poly, x, y) {
+  let s = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const c = cross(poly[i], poly[(i + 1) % poly.length], [x, y]);
+    if (c > 0) s |= 1; if (c < 0) s |= 2;
+  }
+  return s !== 3;
+}
+// 道具本体 + 影子四边形 [a, b, far(b), far(a)]；灯在道具里时只有本体。
+function shadowPolys(poly, L) {
+  if (inside(poly, L[0], L[1])) return [poly];
+  let a, b;
+  for (const v of poly) {
+    let pos = 0, neg = 0;
+    for (const u of poly) { const c = cross(L, v, u); if (c > 1e-9) pos++; if (c < -1e-9) neg++; }
+    if (pos === 0) a = v; else if (neg === 0) b = v;
+  }
+  const far = v => {
+    const d = Math.hypot(v[0] - L[0], v[1] - L[1]);
+    return [v[0] + (v[0] - L[0]) * 1e4 / d, v[1] + (v[1] - L[1]) * 1e4 / d];
+  };
+  return [poly, [a, b, far(b), far(a)]];
+}
+// 在格子中心做扫描线填充。
+function fillPoly(g, poly) {
+  for (let r = 0; r < GH; r++) {
+    const y = r * C + C / 2, xs = [];
+    for (let i = 0; i < poly.length; i++) {
+      const [x1, y1] = poly[i], [x2, y2] = poly[(i + 1) % poly.length];
+      if ((y1 <= y && y2 > y) || (y2 <= y && y1 > y)) xs.push(x1 + (y - y1) * (x2 - x1) / (y2 - y1));
+    }
+    xs.sort((p, q) => p - q);
+    for (let k = 0; k + 1 < xs.length; k += 2) {
+      const c0 = Math.max(0, Math.ceil(xs[k] / C - 0.5)), c1 = Math.min(GW - 1, Math.floor(xs[k + 1] / C - 0.5));
+      for (let c = c0; c <= c1; c++) g[r * GW + c] = 1;
+    }
+  }
+}
+function buildGrid(lv, L, t) {
+  const g = new Uint8Array(GW * GH);
+  for (const [x, y, w, h] of lv.ink) fillPoly(g, propPoly(['box', x, y, w, h], 0));
+  for (const p of lv.props) for (const q of shadowPolys(propPoly(p, t), L)) fillPoly(g, q);
+  return g;
+}
+function railLength(rail) {
+  let n = 0;
+  for (let i = 1; i < rail.length; i++) n += Math.hypot(rail[i][0] - rail[i - 1][0], rail[i][1] - rail[i - 1][1]);
+  return n;
+}
+function lampPos(rail, s) {
+  for (let i = 0; i + 1 < rail.length; i++) {
+    const [x1, y1] = rail[i], [x2, y2] = rail[i + 1], d = Math.hypot(x2 - x1, y2 - y1);
+    if (s <= d || i + 2 === rail.length) {
+      const f = Math.max(0, Math.min(1, s / d));
+      return [x1 + (x2 - x1) * f, y1 + (y2 - y1) * f];
+    }
+    s -= d;
+  }
+}
+function nearestOnRail(rail, x, y) {
+  let best = Infinity, bestS = 0, acc = 0;
+  for (let i = 0; i + 1 < rail.length; i++) {
+    const [x1, y1] = rail[i], [x2, y2] = rail[i + 1], dx = x2 - x1, dy = y2 - y1, d2 = dx * dx + dy * dy;
+    const f = Math.max(0, Math.min(1, ((x - x1) * dx + (y - y1) * dy) / d2));
+    const e = Math.hypot(x1 + dx * f - x, y1 + dy * f - y);
+    if (e < best) { best = e; bestS = acc + f * Math.sqrt(d2); }
+    acc += Math.sqrt(d2);
+  }
+  return bestS;
+}
+// 列越界算墙（实心），行越界算空（天空、坑）。
+function boxFree(g, x, y) {
+  const c0 = Math.floor((x - PW / 2) / C), c1 = Math.floor((x + PW / 2 - 0.001) / C);
+  const r0 = Math.floor((y - PH) / C), r1 = Math.floor((y - 0.001) / C);
+  for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) {
+    if (c < 0 || c >= GW) return false;
+    if (r >= 0 && r < GH && g[r * GW + c]) return false;
+  }
+  return true;
+}
+function medalFor(i, seconds) {
+  return seconds <= LEVELS[i].gold ? 'gold' : seconds <= LEVELS[i].silver ? 'silver' : 'bronze';
+}
+
+// ---------- 状态 ----------
+let rng = Math.random;   // 只用于装饰（尘埃、粒子）
+const REC = /[?&]rec\b/.test(location.search);
+const input = { left: false, right: false, jump: false, q: false, e: false, lampTarget: null };
+let phase = 'title', phaseT = 0, acc = 0, li = 0, LV = LEVELS[0], railLen = 0;
+let s = 0, target = 0, t = 0, grid = null, levelT = 0, totalT = 0, levelDeaths = 0, hintT = 0;
+let px = 0, py = 0, vy = 0, grounded = true, coyote = 0, buffer = 0, facing = 1, moving = 0;
+let roundStarted = false, deaths = 0, levelsCleared = 0, golds = 0, medals = [], endKind = 'won';
+let deathCause = 'fall', lastClear = null, rec = [];
+let particles = [], squash = 0, shake = 0, clock = 0, debugGrid = false;
+
+function startRound() {
+  roundStarted = false; roundAchievements = new Set();
+  deaths = 0; levelsCleared = 0; golds = 0; totalT = 0; medals = Array(10).fill(null);
+  loadLevel(0);
+}
+function loadLevel(i) {
+  li = i; LV = LEVELS[i]; railLen = railLength(LV.rail);
+  levelT = 0; levelDeaths = 0; hintT = 4;
+  restartLevel();
+}
+function restartLevel() {
+  s = target = LV.lampStart * railLen; t = 0;
+  px = LV.spawn[0]; py = LV.spawn[1]; vy = 0; grounded = true; coyote = 0; buffer = 0; moving = 0;
+  grid = buildGrid(LV, lampPos(LV.rail, s), t);
+  input.jump = false; input.lampTarget = null; acc = 0; rec = [];
+  phase = 'play';
+}
+
+function tick() {
+  if (phase !== 'play') return;
+  const any = input.left || input.right || input.jump || input.q || input.e || input.lampTarget !== null;
+  if (any && !roundStarted) { roundStarted = true; emitMoYuFunEvent('start'); }
+  if (REC) record();
+  // 1. 计时与灯笼
+  levelT += DT; totalT += DT;
+  if (input.lampTarget !== null) target = input.lampTarget;
+  else if (input.q !== input.e) target = s + (input.q ? -LAMP_STEP : LAMP_STEP);
+  input.lampTarget = null;
+  target = Math.max(0, Math.min(railLen, target));
+  const d = target - s; s += Math.sign(d) * Math.min(Math.abs(d), LAMP_STEP);
+  // 2. 影子格子
+  t += DT;
+  grid = buildGrid(LV, lampPos(LV.rail, s), t);
+  // 3. 被影子挤出
+  if (!boxFree(grid, px, py)) {
+    const ok = PUSH.find(([dx, dy]) => boxFree(grid, px + dx, py + dy));
+    if (!ok) { die('crush'); return; }
+    px += ok[0]; py += ok[1];
+    if (ok[1] < 0) vy = Math.min(vy, 0);
+  }
+  // 4. 水平移动，贴地时自动上 6 / 12 px 台阶
+  const dir = (input.right ? 1 : 0) - (input.left ? 1 : 0), dx = dir * 3;
+  moving = dir; if (dir) facing = dir;
+  if (dx) {
+    if (boxFree(grid, px + dx, py)) px += dx;
+    else if (grounded) {
+      for (const u of [6, 12]) {
+        const ny = Math.floor((py - u) / C) * C;
+        if (boxFree(grid, px + dx, ny)) { px += dx; py = ny; break; }
+      }
+    }
+  }
+  // 5. 跳（缓冲 + 土狼时间）
+  buffer = input.jump ? 0.1 : Math.max(0, buffer - DT);
+  input.jump = false;
+  if (buffer > 0 && (grounded || coyote > 0)) {
+    vy = -540; buffer = coyote = 0;
+    tone(420, 640, 0.08, 'square', 0.2); puff(px, py, 6, '#3a2f6b');
+  }
+  // 6. 竖直，每步不超过 3 px
+  const wasGrounded = grounded, fallV = vy;
+  vy = Math.min(720, vy + 30);
+  grounded = false;
+  let my = vy / 60;
+  while (Math.abs(my) > 1e-6) {
+    const sy = Math.sign(my) * Math.min(3, Math.abs(my)); my -= sy;
+    if (boxFree(grid, px, py + sy)) py += sy;
+    else { if (sy > 0) { grounded = true; py = Math.floor((py + sy) / C) * C; } vy = 0; break; }
+  }
+  if (!grounded && !boxFree(grid, px, py + 1)) grounded = true;
+  if (grounded && !wasGrounded && fallV > 200) {
+    noiseHit(0.04, 0.15, 1200); squash = 1; puff(px, py, 5, '#2a2250');
+  }
+  // 7.
+  coyote = grounded ? 0.08 : Math.max(0, coyote - DT);
+  // 8. 掉落 / 到门
+  if (py - PH > 560) { die('fall'); return; }
+  const [ex, ey] = LV.exit;
+  if (Math.abs(px - ex) <= 12 && py - PH / 2 >= ey - 36 && py - PH / 2 <= ey) clearLevel();
+}
+
+function die(cause) {
+  deaths++; levelDeaths++; deathCause = cause;
+  if (cause === 'crush') {
+    unlockAchievement('crushed');
+    noiseHit(0.2, 0.5, 500); shake = 0.35; puff(px, py - 12, 26, '#0b0a12', 260);
+  } else {
+    tone(300, 60, 0.4, 'triangle', 0.5);
+  }
+  phase = 'dead'; phaseT = 0.6;
+}
+function clearLevel() {
+  const m = medalFor(li, levelT);
+  medals[li] = m; levelsCleared++;
+  if (m === 'gold') golds++;
+  if (golds >= 5) unlockAchievement('gold_5');
+  if (li === 4) unlockAchievement('halfway');
+  lastClear = { i: li, time: levelT, medal: m };
+  phase = 'clear'; phaseT = 1.5;
+  [523, 659, 784].forEach((f, k) => tone(f, f, 0.18, 'triangle', 0.5, k * 0.1));
+  for (let k = 0; k < 30; k++) puff(LV.exit[0], LV.exit[1] - 18, 1, k % 2 ? '#ffcf5a' : '#fff3c4', 220);
+  if (REC) console.log(`第 ${li + 1} 关解法 (${Math.round(levelT * 60)} 帧):\n` + JSON.stringify(rec));
+}
+function nextLevel() { if (li < 9) loadLevel(li + 1); else endRound(true); }
+function canSkip() { return levelDeaths >= 3 || levelT >= 60; }
+function skipLevel() {
+  if (!canSkip()) return;
+  medals[li] = 'skip';
+  nextLevel();
+}
+function endRound(finished) {
+  const won = finished && !medals.includes('skip');
+  if (won) {
+    unlockAchievement('clear');
+    if (deaths === 0) unlockAchievement('deathless');
+  }
+  if (roundStarted) {
+    emitMoYuFunStats({ rounds: 1, wins: won ? 1 : 0, levels: levelsCleared, golds });
+    emitMoYuFunEvent('end');
+  }
+  roundStarted = false;
+  endKind = won ? 'won' : finished ? 'skipped' : 'quit';
+  phase = 'end'; phaseT = 0;
+}
+function quitRound() {
+  if (!roundStarted) { phase = 'title'; return; }
+  endRound(false);
+}
+
+// ?rec：每帧输入按段压缩，过关时打印。
+function record() {
+  const keys = (input.left ? 'L' : '') + (input.right ? 'R' : '') + (input.jump ? 'J' : '');
+  const lamp = input.lampTarget !== null ? input.lampTarget
+    : input.q !== input.e ? Math.max(0, Math.min(railLen, s + (input.q ? -LAMP_STEP : LAMP_STEP))) : null;
+  const last = rec[rec.length - 1];
+  if (last && lamp === null && last[1] === keys && !keys.includes('J') && !last[1].includes('J')) last[0]++;
+  else rec.push(lamp === null ? [1, keys] : [1, keys, lamp / railLen]);   // 不取整：取整后重放会差几分之一像素而走岔
+}
+
+function puff(x, y, n, color, speed = 90) {
+  for (let k = 0; k < n; k++) {
+    const a = rng() * Math.PI * 2, v = speed * (0.3 + rng() * 0.7);
+    particles.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 30, life: 0.5 + rng() * 0.4, max: 0.9,
+      size: 2 + rng() * 3, color });
+  }
+}
+
+function update(dt) {
+  clock += dt;
+  if (phase === 'play') {
+    acc += dt;
+    while (acc >= DT - 1e-9 && phase === 'play') { acc -= DT; tick(); }
+    hintT = Math.max(0, hintT - dt);
+  } else acc = 0;
+  if (phase === 'dead') { phaseT -= dt; if (phaseT <= 0) restartLevel(); }
+  else if (phase === 'clear') { phaseT -= dt; if (phaseT <= 0) nextLevel(); }
+  else if (phase === 'end') phaseT += dt;
+  squash = Math.max(0, squash - dt * 5); shake = Math.max(0, shake - dt);
+  for (const p of particles) { p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 260 * dt; p.life -= dt; }
+  particles = particles.filter(p => p.life > 0);
+}
+
+// ---------- 画面 ----------
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const view = { s: 1, ox: 0, oy: 0, dpr: 1, w: 0, h: 0 };
+// 用 clientWidth 而不是 innerWidth：手机上画布一旦过宽，innerWidth 会被撑大，越撑越大。
+function resize() {
+  view.dpr = window.devicePixelRatio || 1;
+  view.w = document.documentElement.clientWidth;
+  view.h = document.documentElement.clientHeight;
+  canvas.width = view.w * view.dpr;
+  canvas.height = view.h * view.dpr;
+  canvas.style.width = view.w + 'px';
+  canvas.style.height = view.h + 'px';
+  view.s = Math.min(view.w / W, view.h / H);
+  view.ox = (view.w - W * view.s) / 2;
+  view.oy = (view.h - H * view.s) / 2;
+}
+window.addEventListener('resize', resize);
+resize();
+
+const motes = Array.from({ length: 36 }, () => ({ x: rng() * W, y: rng() * H, r: 1 + rng() * 2, p: rng() * 6.28 }));
+let ui = [], touchSeen = false;
+const ease = k => 1 - Math.pow(1 - Math.min(1, Math.max(0, k)), 3);
+const easeBack = k => { k = Math.min(1, Math.max(0, k)); const c = 1.7; return 1 + (c + 1) * Math.pow(k - 1, 3) + c * Math.pow(k - 1, 2); };
+
+function rr(x, y, w, h, r) { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); ctx.fill(); }
+function text(str, x, y, size, color, weight, align) {
+  ctx.font = `${weight || 700} ${size}px ${FONT}`; ctx.fillStyle = color;
+  ctx.textAlign = align || 'center'; ctx.textBaseline = 'middle'; ctx.fillText(str, x, y);
+}
+function emoji(str, x, y, size) {
+  ctx.font = `${size}px ${EMOJI}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(str, x, y);
+}
+function button(x, y, w, h, label, fn, primary) {
+  ctx.fillStyle = primary ? '#ffcf5a' : 'rgba(29,24,48,.78)'; rr(x, y, w, h, h / 2);
+  text(label, x + w / 2, y + h / 2 + 1, primary ? 20 : 15, primary ? '#1d1830' : '#fff3c4', 800);
+  ui.push({ x, y, w, h, fn });
+}
+function pathPoly(poly) {
+  // 统一成同一绕向，nonzero 填充时重叠的影子合并而不是抠洞。
+  let area = 0;
+  for (let i = 0; i < poly.length; i++) area += cross([0, 0], poly[i], poly[(i + 1) % poly.length]);
+  const pts = area < 0 ? poly.slice().reverse() : poly;
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+  ctx.closePath();
+}
+
+function drawScene(lv, sv, tv, dim) {
+  const L = lampPos(lv.rail, sv), polys = lv.props.map(p => propPoly(p, tv));
+  const g = ctx.createRadialGradient(L[0], L[1], 10, L[0], L[1], 900);
+  g.addColorStop(0, '#fff3c4'); g.addColorStop(1, '#e9d9a8');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  // 光里的浮尘
+  for (const m of motes) {
+    const x = (m.x + clock * 6) % W, y = m.y + Math.sin(clock * 0.7 + m.p) * 8;
+    ctx.fillStyle = `rgba(255,214,120,${0.25 + 0.2 * Math.sin(clock * 1.3 + m.p)})`;
+    ctx.beginPath(); ctx.arc(x, y, m.r, 0, 7); ctx.fill();
+  }
+  // 影子
+  ctx.save(); ctx.globalAlpha = 0.92; ctx.fillStyle = '#3a2f6b'; ctx.beginPath();
+  for (const poly of polys) for (const q of shadowPolys(poly, L)) pathPoly(q);
+  ctx.fill(); ctx.restore();
+  // 墨石
+  for (const [x, y, w, h] of lv.ink) {
+    ctx.fillStyle = '#1d1830'; ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = '#4b3f86'; ctx.fillRect(x, y, w, 2);
+  }
+  // 轨道
+  ctx.save(); ctx.strokeStyle = '#5a4a2a'; ctx.lineWidth = 2; ctx.setLineDash([6, 6]); ctx.beginPath();
+  lv.rail.forEach(([x, y], k) => k ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.stroke(); ctx.restore();
+  ctx.fillStyle = '#5a4a2a';
+  for (const p of [lv.rail[0], lv.rail[lv.rail.length - 1]]) { ctx.beginPath(); ctx.arc(p[0], p[1], 4, 0, 7); ctx.fill(); }
+  // 道具：朝灯的一侧描亮边
+  lv.props.forEach((p, k) => {
+    const poly = polys[k], blade = p[0] === 'spin';
+    ctx.fillStyle = blade ? '#6b4a2b' : '#8a5a2b'; ctx.beginPath(); pathPoly(poly); ctx.fill();
+    if (!blade && p[4] >= 30 && p[5] >= 30) {
+      const [[x0, y0], , [x1, y1]] = poly;
+      ctx.strokeStyle = '#6e4521'; ctx.lineWidth = 3;
+      ctx.strokeRect(x0 + 5, y0 + 5, x1 - x0 - 10, y1 - y0 - 10);
+      ctx.beginPath(); ctx.moveTo(x0 + 6, y0 + 6); ctx.lineTo(x1 - 6, y1 - 6); ctx.stroke();
+    }
+    ctx.strokeStyle = '#c98b4a'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+    for (let e = 0; e < 4; e++) {
+      const a = poly[e], b = poly[(e + 1) % 4], mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+      const cx = poly.reduce((n, v) => n + v[0], 0) / 4, cy = poly.reduce((n, v) => n + v[1], 0) / 4;
+      if ((mx - cx) * (L[0] - mx) + (my - cy) * (L[1] - my) > 0) {
+        ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+      }
+    }
+    if (blade) { ctx.fillStyle = '#c98b4a'; ctx.beginPath(); ctx.arc(p[1], p[2], 4, 0, 7); ctx.fill(); }
+  });
+  // 门
+  const [ex, ey] = lv.exit, glow = 0.5 + 0.5 * Math.sin(clock * 3);
+  ctx.save(); ctx.shadowColor = '#ffcf5a'; ctx.shadowBlur = 10 + glow * 12;
+  ctx.beginPath(); ctx.moveTo(ex - 12, ey); ctx.lineTo(ex - 12, ey - 24); ctx.arc(ex, ey - 24, 12, Math.PI, 0); ctx.lineTo(ex + 12, ey); ctx.closePath();
+  ctx.fillStyle = '#0b0a12'; ctx.fill(); ctx.strokeStyle = '#ffcf5a'; ctx.lineWidth = 3; ctx.stroke(); ctx.restore();
+  // 灯笼
+  const lg = ctx.createRadialGradient(L[0], L[1], 2, L[0], L[1], 70);
+  lg.addColorStop(0, 'rgba(255,207,90,.75)'); lg.addColorStop(1, 'rgba(255,207,90,0)');
+  ctx.fillStyle = lg; ctx.beginPath(); ctx.arc(L[0], L[1], 70, 0, 7); ctx.fill();
+  emoji('🏮', L[0], L[1] + 2 + Math.sin(clock * 2.4) * 1.5, 28);
+  if (dim) { ctx.fillStyle = `rgba(18,15,28,${dim})`; ctx.fillRect(0, 0, W, H); }
+}
+
+function drawPlayer() {
+  const st = squash, sx = 1 + st * 0.25 - Math.min(0.12, Math.abs(vy) / 5000), sy = 1 - st * 0.25 + Math.min(0.15, Math.abs(vy) / 4000);
+  const w = PW * sx, h = PH * sy;
+  ctx.fillStyle = '#0b0a12'; rr(px - w / 2, py - h, w, h, 7);
+  ctx.strokeStyle = 'rgba(255,207,90,.35)'; ctx.lineWidth = 1; ctx.stroke();
+  const look = moving || facing * 0.4, up = vy < -60 ? -2 : vy > 200 ? 1.5 : 0;
+  const blink = (clock % 3.2) < 0.1 ? 0.3 : 1;
+  ctx.fillStyle = '#ffcf5a';
+  for (const ox of [-4, 4]) {
+    ctx.beginPath(); ctx.ellipse(px + ox + look * 2.5, py - h + 9 + up, 2.2, 3 * blink, 0, 0, 7); ctx.fill();
+  }
+}
+
+function drawHUD() {
+  text(`第 ${li + 1} 关 · ${LV.name}`, 20, 24, 20, '#3d3220', 800, 'left');
+  text(`${levelT.toFixed(1)} 秒`, 940, 24, 20, '#3d3220', 800, 'right');
+  text(`金 ${LV.gold} 秒 · 跌落 ${deaths}`, 940 - ctx.measureText(`${levelT.toFixed(1)} 秒`).width - 16, 25, 14, '#7a6a45', 600, 'right');
+  let bx = 940;
+  const hud = [['重来', restartLevel], ['放弃', quitRound]];
+  if (canSkip()) hud.push(['跳过', skipLevel]);
+  for (const [label, fn] of hud) { bx -= 60; button(bx, 42, 56, 28, label, fn); bx -= 4; }
+  if (hintT > 0) {
+    const a = Math.min(1, hintT / 0.5, (4 - hintT) / 0.3);
+    ctx.globalAlpha = Math.max(0, a);
+    ctx.font = `700 17px ${FONT}`;
+    const w = ctx.measureText(LV.hint).width + 40;
+    ctx.fillStyle = 'rgba(29,24,48,.82)'; rr(W / 2 - w / 2, 92, w, 36, 18);
+    text(LV.hint, W / 2, 111, 17, '#ffcf5a', 700);
+    ctx.globalAlpha = 1;
+  }
+  if (touchSeen) {
+    ctx.globalAlpha = 0.4;
+    for (const [x, label, hold] of [[20, '◀', 'L'], [110, '▶', 'R'], [860, '跳', 'J']]) {
+      const down = [...pointers.values()].includes(hold);
+      ctx.fillStyle = down ? '#ffcf5a' : '#1d1830'; rr(x, 450, 80, 80, 20);
+      text(label, x + 40, 491, 30, down ? '#1d1830' : '#fff3c4', 800);
+      ui.push({ x, y: 450, w: 80, h: 80, hold });
+    }
+    ctx.globalAlpha = 1;
+  }
+}
+
+function draw() {
+  ui = [];
+  ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
+  ctx.fillStyle = '#120f1c'; ctx.fillRect(0, 0, view.w, view.h);
+  const sh = shake > 0 ? shake * 14 : 0;
+  ctx.setTransform(view.s * view.dpr, 0, 0, view.s * view.dpr,
+    (view.ox + (rng() - 0.5) * sh * view.s) * view.dpr, (view.oy + (rng() - 0.5) * sh * view.s) * view.dpr);
+  ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.clip();
+
+  if (phase === 'title') {
+    const lv = LEVELS[0], len = railLength(lv.rail);
+    drawScene(lv, (0.5 - 0.5 * Math.cos(clock * 0.8)) * len, 0, 0.55);
+    text('影子行者', W / 2, 190, 72, '#fff3c4', 900);
+    text('只能踩在影子上的小家伙，要靠一盏灯回家', W / 2, 256, 20, '#e9d9a8', 500);
+    button(W / 2 - 90, 300, 180, 56, '开始', startRound, true);
+    text('拖动灯笼改变影子 · A/D 移动 · 空格 跳', W / 2, 392, 16, '#c9bb94', 500);
+    if (view.h > view.w) text('横过手机来玩更舒服', W / 2, 424, 15, '#ffcf5a', 600);
+    ctx.restore(); return;
+  }
+
+  drawScene(LV, s, t, 0);
+  if (debugGrid && grid) {
+    ctx.fillStyle = 'rgba(255,60,90,.35)';
+    for (let r = 0; r < GH; r++) for (let c = 0; c < GW; c++) if (grid[r * GW + c]) ctx.fillRect(c * C, r * C, C - 1, C - 1);
+  }
+  if (target !== s && phase === 'play') {
+    const [tx, ty] = lampPos(LV.rail, target);
+    ctx.strokeStyle = 'rgba(90,74,42,.6)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(tx, ty, 10, 0, 7); ctx.stroke();
+  }
+  if (phase !== 'dead' || deathCause === 'fall') drawPlayer();
+  for (const p of particles) {
+    ctx.globalAlpha = Math.max(0, p.life / p.max); ctx.fillStyle = p.color;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, 7); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  if (phase === 'dead') {
+    const k = 1 - phaseT / 0.6;
+    ctx.fillStyle = deathCause === 'fall' ? `rgba(255,243,196,${0.7 * (1 - k)})` : `rgba(11,10,18,${0.6 * (1 - k)})`;
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = 'rgba(29,24,48,.85)'; rr(W / 2 - 150, 236, 300, 64, 32);
+    text(deathCause === 'fall' ? '掉进光里了' : '被影子挤扁了', W / 2, 269 - 8 * (1 - ease(k * 3)), 26, '#ffcf5a', 800);
+  }
+  if (phase === 'play' || phase === 'dead') drawHUD();
+  if (phase === 'clear' && lastClear) {
+    const k = easeBack((1.5 - phaseT) / 0.35);
+    ctx.fillStyle = `rgba(18,15,28,${0.45 * ease((1.5 - phaseT) / 0.3)})`; ctx.fillRect(0, 0, W, H);
+    ctx.save(); ctx.translate(W / 2, 270); ctx.scale(k, k);
+    ctx.fillStyle = '#fff3c4'; rr(-180, -70, 360, 140, 24);
+    text(`第 ${lastClear.i + 1} 关 通过`, 0, -26, 32, '#1d1830', 900);
+    text(`用时 ${lastClear.time.toFixed(1)} 秒 · `, -18, 28, 20, '#5a4a2a', 600);
+    ctx.fillStyle = '#000'; emoji(MEDAL[lastClear.medal], 74, 28, 26);
+    ctx.restore();
+  }
+  if (phase === 'end') drawEnd();
+  ctx.restore();
+}
+
+function drawEnd() {
+  const k = ease(phaseT / 0.4);
+  ctx.fillStyle = `rgba(18,15,28,${0.82 * k})`; ctx.fillRect(0, 0, W, H);
+  ctx.save(); ctx.globalAlpha = k; ctx.translate(0, (1 - k) * 30);
+  const skips = medals.filter(m => m === 'skip').length;
+  const title = endKind === 'won' ? '回家了' : endKind === 'skipped' ? `走完了，但跳过了 ${skips} 关` : '今天先到这里';
+  text(title, W / 2, 140, endKind === 'won' ? 60 : 44, '#ffcf5a', 900);
+  const m = Math.floor(totalT / 60), sec = String(Math.floor(totalT % 60)).padStart(2, '0');
+  text(`总用时 ${m}:${sec}`, W / 2, 206, 22, '#e9d9a8', 600);
+  medals.forEach((md, k2) => {
+    const x = W / 2 - 270 + k2 * 60;
+    ctx.fillStyle = 'rgba(255,243,196,.08)'; rr(x - 26, 236, 52, 64, 12);
+    text(String(k2 + 1), x, 250, 12, '#9a8f74', 600);
+    if (MEDAL[md]) { ctx.fillStyle = '#000'; emoji(MEDAL[md], x, 278, 28); }
+    else text('—', x, 278, 22, '#6a6050', 600);
+  });
+  text(`金牌 ${golds} · 跌落 ${deaths}`, W / 2, 336, 20, '#e9d9a8', 600);
+  ctx.restore();
+  if (phaseT > 0.3) button(W / 2 - 90, 380, 180, 56, '再来一局', startRound, true);
+}
+
+// ---------- 输入 ----------
+const keys = new Set(), pointers = new Map();   // pointerId → 'lamp' | 'L' | 'R' | 'J' | { btn }
+function syncHeld() {
+  const held = [...pointers.values()];
+  input.left = keys.has('KeyA') || keys.has('ArrowLeft') || held.includes('L');
+  input.right = keys.has('KeyD') || keys.has('ArrowRight') || held.includes('R');
+  input.q = keys.has('KeyQ'); input.e = keys.has('KeyE');
+}
+function toWorld(e) { return { x: (e.clientX - view.ox) / view.s, y: (e.clientY - view.oy) / view.s }; }
+function inRect(p, b) { return p.x >= b.x && p.x < b.x + b.w && p.y >= b.y && p.y < b.y + b.h; }
+function aimLamp(p) { input.lampTarget = nearestOnRail(LV.rail, p.x, p.y); }
+
+canvas.addEventListener('pointerdown', e => {
+  ensureAudio();
+  if (e.pointerType === 'touch') touchSeen = true;
+  const p = toWorld(e), b = ui.find(b => inRect(p, b));
+  try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* 已松开 */ }
+  if (b && b.hold) { pointers.set(e.pointerId, b.hold); if (b.hold === 'J' && phase === 'play') input.jump = true; }
+  else if (b) pointers.set(e.pointerId, { btn: b });
+  else if (phase === 'play') { pointers.set(e.pointerId, 'lamp'); aimLamp(p); }
+  else if (phase === 'clear') nextLevel();
+  syncHeld();
+});
+canvas.addEventListener('pointermove', e => {
+  const p = toWorld(e), own = pointers.get(e.pointerId);
+  if (own === 'lamp' && phase === 'play') aimLamp(p);
+  if (e.pointerType === 'mouse') canvas.style.cursor = ui.some(b => inRect(p, b)) ? 'pointer' : own === 'lamp' ? 'grabbing' : 'default';
+});
+function release(e) {
+  const own = pointers.get(e.pointerId);
+  pointers.delete(e.pointerId);
+  if (own && own.btn && e.type === 'pointerup' && inRect(toWorld(e), own.btn)) own.btn.fn();
+  syncHeld();
+}
+canvas.addEventListener('pointerup', release);
+canvas.addEventListener('pointercancel', release);
+
+const GAME_KEYS = ['KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight', 'KeyQ', 'KeyE', 'Space', 'KeyW', 'ArrowUp', 'ArrowDown'];
+window.addEventListener('keydown', e => {
+  ensureAudio();
+  if (GAME_KEYS.includes(e.code)) e.preventDefault();
+  if (e.code === 'KeyM') muted = !muted;
+  else if (e.code === 'KeyG') debugGrid = !debugGrid;
+  else if ((e.code === 'Space' || e.code === 'Enter') && !e.repeat && (phase === 'title' || (phase === 'end' && phaseT > 0.3))) { startRound(); return; }
+  else if (e.code === 'KeyR' && phase === 'play') restartLevel();
+  if (phase === 'clear' && (e.code === 'Space' || e.code === 'Enter') && !e.repeat) { nextLevel(); return; }
+  if ((e.code === 'Space' || e.code === 'KeyW' || e.code === 'ArrowUp') && !e.repeat && phase === 'play') input.jump = true;
+  keys.add(e.code); syncHeld();
+});
+window.addEventListener('keyup', e => { keys.delete(e.code); syncHeld(); });
+window.addEventListener('blur', () => { keys.clear(); pointers.clear(); syncHeld(); });
+
+let lastT = 0;
+function loop(now) {
+  const dt = Math.min(0.1, (now - lastT) / 1000 || 0);
+  lastT = now;
+  update(dt); draw();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+// 主站在水合后才监听消息，单发的 ready 可能丢；重复的 ready 主站会忽略。start 在本局第一次操作时才发。
+emitMoYuFunEvent('ready');
+for (const ms of [500, 2000, 5000]) setTimeout(() => emitMoYuFunEvent('ready'), ms);
+</script>
+</body>
+</html>

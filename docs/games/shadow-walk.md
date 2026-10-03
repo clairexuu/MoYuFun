@@ -1,6 +1,6 @@
 # 影子行者 (`shadow-walk`)
 
-**Status:** Design — settled, not yet implemented. Milestones: M1 ☐ · M2 ☐ · M3 ☐
+**Status:** Implemented 2026-10-02 (`games/shadow-walk/v1/`), released locally; production publish follows (`pnpm game publish shadow-walk v1`). Milestones: M1 ☑ · M2 ☑ · M3 ☑ (see notes).
 
 A one-screen-per-level platformer where the ground is shadow. You are a small shadow creature who can only stand in shadow. Drag a lantern along its rail, and the shadows of crates, planks and windmill blades stretch, tilt and swing into bridges, ramps and lifts; lit space is air, and you fall through it. Ten hand-made levels make one round. Mouse or touch, with keyboard for movement; single-player.
 
@@ -242,6 +242,23 @@ Each is sent once per round through `unlockAchievement(key)` (one literal `emitM
 
 **Quit before input.** `startRound(); quitRound()` sends nothing.
 
+## Implementation notes
+
+No decision changed. The recorded solutions replay unchanged in the real game: the headless test clears levels 1–10 in 356, 477, 346, 705, 368, 334, 795, 338, 621 and 842 ticks, matching the reference simulation tick for tick, and none of them clears with the lamp frozen.
+
+Gotchas and details the doc left open:
+
+- **Exact float replay.** `tick()` moves the lamp by `240 * (1/60)` and advances `t += 1/60` exactly as the reference sim did; computing the step differently (e.g. a literal `4`) is harmless today but any change to the order of steps 1–8 means re-recording with `?rec`.
+- **`?rec` precision.** Lamp targets are logged as full-precision rail fractions. Rounding them (to 3–6 digits) moves the replayed target by a fraction of a pixel, which can be enough to change a shadow edge by one cell and break the replay.
+- **`levelT`** advances only inside `tick()`, so the 0.6 s death overlay and the clear overlay are not counted; it is not reset on death or `R`.
+- **`start`** is sent on the first non-empty input to `tick()` after `startRound()` (in tests, also after a bare `loadLevel()`). Skipping a level does not count as input.
+- **Land sound and dust** fire only when landing faster than 200 px/s, so being pushed up by a rising shadow or stepping up does not spam `noiseHit`.
+- **Shadow drawing.** All bodies and quads go into one path with a normalised winding, then one fill at 0.92 alpha, so overlapping shadows neither darken nor cut holes under the nonzero rule.
+- **`tone` takes an optional `delay`** for the clear arpeggio (523/659/784 Hz, 0.1 s apart) instead of `setTimeout`.
+- **Extra keys:** Space/Enter also starts a new round from the end screen and skips the clear overlay. Window `blur` clears held keys and pointers so the player does not keep walking after an alt-tab.
+- HUD buttons fire on `pointerup` inside the same button; touch ◀ ▶ 跳 act on `pointerdown` and hold until release. A pointer captured for the lamp stays on the lamp even when it drags across a button.
+- Portrait phones see a `横过手机来玩更舒服` line on the title screen; the 960 × 540 play area is letterboxed, not rotated.
+
 ## Milestones
 
 Each milestone ends with `node games/shadow-walk/v1/test_headless.js` passing.
@@ -255,7 +272,14 @@ Done when: `pnpm game check shadow-walk v1` passes.
 **M3 · Local release.** `pnpm game:local publish shadow-walk v1 --yes`.
 Done when: `/play/shadow-walk` plays locally, and a logged-in round that clears level 5 unlocks `halfway` and updates the stats board. The owner runs the production publish.
 
+### M3 notes
+
+- Local publish registered the game, five achievements and four stats; the smoke test found `/play/shadow-walk` serving v1.
+- Level 1 was cleared in the browser with a real lamp drag and held keys: drag the lamp to the bottom of the rail, jump onto the crate's shadow, walk to the door. A round on `/play/shadow-walk` (start, lamp drag, 放弃) wrote `game_ready`, `game_start` and `game_end` events locally. No account was logged in, so the achievement popup and stats board were not exercised in the browser; the headless test covers the message sequence, and the SDK path is the same as 摸了个鱼's.
+- Gotcha: a click anywhere on the canvas aims the lamp (the nearest rail point), so tapping to focus the game moves the lamp. This is by design for touch.
+- Gotcha: walking into a shadow from the ground is walking into a wall; level 1 needs a jump onto the crate's shadow. The level 1 hint only mentions the lamp.
+- Portrait phones see the letterboxed level and the `横过手机来玩更舒服` line, as designed.
+
 ## Open items
 
-- The solutions were produced by a reference simulation of the rules above. If the implementation differs in any detail of `tick()` order or rounding, re-record the affected levels with `?rec` in M1, keeping the level geometry. Implementer, M1.
 - Level 9's second jump (from the upper beam back onto the top ledge) has a window of about 24 px of run-up. If a human playtest finds it too fiddly, widen the top ledge leftward or lower it by 6 px, then re-record. Owner, after M1.
