@@ -1,30 +1,35 @@
 # 玄武农场 (`turtle-farm`)
 
-**Status:** Implemented and published to production 2026-10-02 (`pnpm game publish turtle-farm v1`; the play page loads at www.moyufuns.com/play/turtle-farm). Milestones: M1 ☑ · M2 ☑ · M3 ☑ (see notes).
+**Status:** v2 implemented and published to production 2026-10-05 (`pnpm game publish turtle-farm v2`; www.moyufuns.com/play/turtle-farm). Milestones: M1 ☑ · M2 ☑ · M3 ☑ (see notes).
 
-A farming game on the back of a walking giant turtle. Your 4 × 4 field rides 玄武 across 草原, 雨林, 沙漠 and 雪原 for 30 days, stopping at a 集市 every sixth day. Each crop grows fast in the land it likes and withers if it spends too long in land it hates, and the route is visible only 5 days ahead. So you plant now for the land the field will cross while the crop grows, and harvest in time to sell at the next market. Earn 800 金币 by the end of day 30. Mouse or touch, single-player, about 6 minutes at 1×.
+A farming game disguised as an Excel purchase plan. Your 4 × 4 field is a block of cells that rides the turtle 玄武 for 30 days across 草原, 雨林, 沙漠 and 雪原, stopping at a 集市 every sixth day. Each crop grows fast in the land it likes and withers if it spends too long in land it hates, and the route is visible only 5 days ahead in a header row. So you plant now for the land the field will cross while the crop grows, and harvest in time to sell at the next market. Earn 800 金币 by the end of day 30. Mouse or touch, single-player, about 4–5 minutes.
 
-Read first: `docs/design/game-release.md` (package contract, `check`, `publish`), `docs/design/game-stats.md` → Protocol, `docs/design/accounts-achievements.md` → Game protocol, `games/slash/v4/index.html` (SDK block, `resize()`, audio helpers), `games/slash/v4/test_headless.js` (stub pattern).
+This is version 2, a rework under `docs/design/office-camouflage.md` (M7). v1 is described at the end (*v1 and why it changed*).
+
+Read first: `docs/design/office-camouflage.md` (D2 `disguise`, D6 conventions, D7 Excel chrome, D8 colours), `docs/design/game-release.md` (package contract, `check`, `publish`), `docs/design/game-stats.md` → Protocol, `docs/design/accounts-achievements.md` → Game protocol, `games/turtle-farm/v1/` (the rules v2 keeps), `games/prototype-skins/index.html` variant C (the chrome v2 copies).
 
 ## Decisions
 
 | # | Decision | Why |
 | --- | --- | --- |
-| D1 | One file, `games/turtle-farm/v1/index.html`, vanilla JS and canvas, no dependencies. Copy from 乱刃 v4 / 摸了个鱼 only the SDK block, the `resize()`/`view` pattern (`document.documentElement.clientWidth/Height`) and the audio helpers. Crops and biomes are emoji drawn with `fillText`; the turtle, plots and UI are canvas shapes. | Same package contract; the gameplay shares nothing with either game. |
-| D2 | The rules are pure functions over one `state` object (below), separate from `render()`. Time moves only through `update(dt)`. Randomness goes through `rng()` (default `Math.random`, `mulberry32` in tests). | The headless test drives whole voyages, including the balance bots, without a canvas. |
-| D3 | A voyage is 30 days. A day lasts `DAY_SECONDS = 12` at 1× and 6 at 2×, so a round runs 6 minutes at 1× and 3 at 2×. ⏸ pauses the clock. Planting, harvesting and selling all work while paused. The game pauses itself on `visibilitychange` to hidden. | Pausing is thinking time in a planning game, so it should not lock the field. 2× is for players who plan fast. |
-| D4 | Growth is integer points. At the end of each day, every growing crop gets 3 points if it likes that day's land (喜), 2 if neutral (平), and 0 plus one harm if it hates it (忌). It ripens at `2 × days` points. It withers when `harm > tough`, and harm never heals. A 集市 day counts as 平 for every crop. | Integer points make "X days" exact on neutral land and about a third faster on liked land. Harm that never heals makes long crops through mixed land a real gamble. |
-| D5 | A ripe crop waits on its plot for 3 day-ends. On the third it rots and is lost. Harvested goods go to the 仓库, which has no capacity limit and no decay. | Harvest timing matters without adding a storage minigame. Holding goods for a better market is a legitimate choice. |
-| D6 | The only inputs are plant, harvest and sell. There is no watering, fertiliser, tools or upgrades. | The one skill is reading the route. Every extra verb would dilute it. |
-| D7 | Markets are on fixed days 6, 12, 18, 24 and 30. All other days come from seeded segments (rules below), and the first segment is always 草原. Each market rolls one 热销 crop (price ×2) and a different 滞销 crop (price ×0.5, floored). Selling happens only on market days. | Fixed market days give a predictable cash cycle, so the planning centres on the land. Hot and cold crops reward planting for a market you can already see. |
-| D8 | The forecast strip shows today plus the next 5 days. A market tile shows its 热销 and 滞销 emoji. Tapping a seed tints every forecast tile by that crop's relation: green 喜, grey 平, red 忌. There is no automatic "will ripen on day N" readout. | The six visible day-ends cover a 5-day crop only when it never stalls; any 忌 day pushes its ripening past the strip, so slow crops planted into mixed land carry a blind tail. Players do the point arithmetic themselves; that is the skill. |
-| D9 | The player starts with 20 金币, the target is 800 and 富甲一方 needs 1500. Balance from a prototype simulation over seeds 1–200 (bots defined under Headless test): the greedy forecast bot ends ≥ 800 in 94% of voyages; the same bot seeing only today wins 0%, and seeing 3 days ahead wins 38%; potato-only wins 0% (median 356); random planting wins 0% (median 47). The forecast bot reaches 1500 in 15%. | Planting blindly or only safely loses; reading the full strip wins. The headless test enforces these bands (with margin), so tuning cannot quietly break them. |
-| D10 | `ready` is sent on load and again at 0.5, 2 and 5 s. `start` is sent when `启程` is pressed (the round's first real action). | The repo convention since 升官记 D8: the site listens only after hydration. |
-| D11 | Input uses Pointer Events. Tapping a plot acts on it. Dragging from a plot repeats that action on each new plot the pointer enters: planting the selected seed on empty plots, or harvesting ripe ones. The action is fixed by the first plot. | Planting 16 plots one tap at a time is tedious on touch; a drag sweep is natural for a field. |
+| D1 | One file, `games/turtle-farm/v2/index.html`, vanilla JS and canvas, no dependencies. The Excel chrome is copied from the prototype's variant C. v1 stays untouched. | Same package contract as v1; the prototype is the approved look. |
+| D2 | v1's route generation, growth points, harm, ripening and rot rules are kept unchanged (*Rules*). | They are tested and balanced; the problems were pacing and presentation, not the model. |
+| D3 | The whole game is one worksheet, `玄武物流`. The field is the cell block B9:E12, the forecast is a header row of dates over a row of land names, the seed list and the 仓库 are two small tables. Coins are in K1 and in the status bar's 求和. There is no drawn turtle, emoji or game art; the turtle survives only in text (`玄武物流`). | A passer-by sees a spreadsheet. Every piece of game state has an ordinary spreadsheet form. |
+| D4 | Crop state is conditional formatting (office-camouflage D8): growing is a neutral data bar (`#ffeb9c`), turning bad (`#ffc7ce`) once the crop has taken harm; ripe is good (`#c6efce`); withered is bad. A 3-arrow icon set shows today's land for that crop (green ▲ 喜, yellow ▶ 平, red ▼ 忌). | These are formats real sheets are full of. The icon tells the player what today's tick will do without leaving the cell. |
+| D5 | A market day stops the clock until the player clicks `离开集市` (or presses Enter). Leaving ends the market day at once: its growth tick (平 for every crop) runs and the next day starts. On day 30 the button reads `靠岸结算`. | v1's markets passed on a timer, so a player could miss one and wait six days. Ending the day on leave keeps a voyage at 25 timed days plus market time. |
+| D6 | A 收购商 buys any crop on any day at `floor(sell / 2)`. On market days the market price applies instead (hot ×2, cold ×0.5, else `sell`). | The player is never stuck with goods and no coins. Half price is break-even for 土豆 (cost 3, buys at 3), so it is a safety net, not a strategy. |
+| D7 | Start with 40 金. A day is `DAY_SECONDS = 8`. There is no 2× speed. | v1's 20 金 left no margin for an early mistake. 8 s × 25 timed days ≈ 3.3 minutes plus markets, about 4–5 minutes in all. With the market stop a fast-forward has little left to skip. |
+| D8 | There is no title screen. The page opens in phase `ready`: the route is generated and the sheet is drawn, the clock does not run, and the status bar says how to start. The first plant sends `start` and starts the clock. | office-camouflage D6: the first frame is a plausible document. The first plant is the round's first real action. |
+| D9 | Feedback is office-plausible only: a short fading tint on a cell when it changes, a counting-up 余额, status-bar messages instead of toasts, a formula bar that describes the active cell, and a grey form button for `离开集市`. No particles, confetti or flying items. | Feedback must survive a glance from a colleague. |
+| D10 | `Esc` is the boss key: it switches to the sheet tab `采购汇总`, a plain table of numbers, hides the field, flashes and the end dialog, and freezes time. `Esc` again, or clicking the `玄武物流` tab, returns. Clicking `采购汇总` also hides. Sound is off until `M`. | office-camouflage D6. The tab click gives a mouse-only boss key. |
+| D11 | Balance from the headless bots over seeds 1–200 (bots under *Headless test*): `forecastBot(5)` reaches 800 in 99.5% (1500 in 37.5%, median 1382); `forecastBot(3)` 62%; `forecastBot(0)` 0.5%; `potatoBot` 3.5% (median 468); `randomBot` 0% (median 110). The targets stay 800 / 1500. | Reading the full forecast still clearly beats the naive bots. The greedy bot plants every slot instantly; humans with 8 s days will be well below it, so 800 is kept as the human target rather than raised to keep the bot near 94%. |
+| D12 | Achievements keep all five v1 keys, unchanged. | All five still make sense under the new rules; the market stop makes `hot_seller` fairer, not trivial. |
+| D13 | Input uses Pointer Events. Pressing a field cell acts on it (plant on empty, harvest on ripe, clear on withered) and dragging repeats that action on each new field cell, drawn as a selected range. Clicking a seed-table row selects that seed. `卖出` / `全部卖出` cells are hyperlink-styled. Everything acts on `pointerdown`, and every hit test reads the current state and the current window size. Window `blur` ends a drag. | Drag-planting is the spreadsheet's fill gesture. Acting on down keeps one code path for mouse and touch. |
+| D14 | `ready` is sent on load and at 0.5, 2 and 5 s, each followed by `emitMoYuFunDisguise('excel', '农产品采购计划_2026.xlsx - Excel')`. The title never changes. | office-camouflage D2. |
 
 ## Out of scope
 
-Watering, tools, upgrades, buying more plots, weather events beyond the land types, choosing the route, saving between page loads, a best-score display, leaderboards, cross-round achievements.
+Watering, tools, upgrades, more plots, choosing the route, a 2× speed, a mid-voyage restart, saving between page loads, a best-score display, a VS Code skin, a portrait/mobile layout, cross-round achievements.
 
 ## Architecture
 
@@ -33,27 +38,29 @@ Watering, tools, upgrades, buying more plots, weather events beyond the land typ
 ```text
 games/turtle-farm/
   game.json
-  v1/index.html
-  v1/test_headless.js
-  v1/README.md
+  v1/…            (published, immutable)
+  v2/index.html
+  v2/test_headless.js
+  v2/README.md
 ```
 
-`game.json`:
+`game.json` (shared by both versions; v2's copy below):
 
 ```json
 {
   "slug": "turtle-farm",
   "name": "玄武农场",
-  "shortDescription": "在神龟背上种田，看准前方地形再播种。",
-  "description": "上古玄武驮着你的田地穿过草原、雨林、沙漠和雪原。每种作物都有喜欢和讨厌的地形：在喜欢的地方长得快，在讨厌的地方待久了就会枯萎。看准前方五天的路线再播种，赶在集市前收成卖掉，三十天内攒够 800 金币。",
+  "shortDescription": "一张采购计划表：看准地形预报再播种，赶在集市前收成。",
+  "description": "打开是一张农产品采购计划表。4 × 4 的地块跟着玄武走过草原、雨林、沙漠和雪原，表头一行是前方五天的地形预报。每种作物都有喜欢和讨厌的地形：在喜欢的地方长得快，在讨厌的地方待久了就会枯萎。集市日时间停下来让你慢慢卖，平时收购商随时半价收货。三十天内攒够 800 金币。按 Esc 一键切到普通表格。",
   "tags": ["种田", "策略", "单人"],
   "controls": [
-    { "input": "鼠标 / 触摸", "action": "选种子，点空地播种，点成熟作物收获（可拖动连续操作）" },
-    { "input": "集市面板", "action": "卖出作物" },
-    { "input": "1–8", "action": "选择种子" },
+    { "input": "鼠标 / 触摸", "action": "点空白地块播种，点成熟作物收获（可拖动连续操作）" },
+    { "input": "种子目录 / 1–8", "action": "选择种子" },
+    { "input": "仓库「卖出」", "action": "卖出作物：集市日按行情价，平时收购商半价" },
+    { "input": "「离开集市」/ 回车", "action": "卖完离开集市，继续上路" },
     { "input": "空格", "action": "暂停或继续" },
-    { "input": "F", "action": "切换 1× / 2× 速度" },
-    { "input": "M", "action": "静音或恢复声音" }
+    { "input": "Esc", "action": "切换到普通表格（老板键），再按一次回来" },
+    { "input": "M", "action": "打开或关闭声音（默认关）" }
   ],
   "cover": { "symbol": "龟", "eyebrow": "SHELL FARMING", "accent": "#6fbf4a", "accentSecondary": "#4ab0bf" },
   "sortOrder": 100,
@@ -73,200 +80,160 @@ games/turtle-farm/
 }
 ```
 
-The `harvests` cap is 16 plots × 15 two-day radish cycles = 240, rounded up.
+The `harvests` cap is 16 plots × 15 two-day radish cycles = 240, rounded up. Publishing v2 replaces the catalog text and controls; v1 players see the new copy.
 
-### Lands
+### Lands and crops
 
-`BIOMES` (key → name, emoji, ground colour):
+`BIOMES`: `grass` 草原, `rain` 雨林, `desert` 沙漠, `snow` 雪原, `market` 集市.
 
-| key | name | emoji | ground |
-| --- | --- | --- | --- |
-| `grass` | 草原 | 🌾 | `#8fd16a` |
-| `rain` | 雨林 | 🌴 | `#2f8f5b` |
-| `desert` | 沙漠 | 🏜️ | `#e9c46a` |
-| `snow` | 雪原 | ❄️ | `#e8f1f8` |
-| `market` | 集市 | 🏮 | `#f4a261` |
+`CROPS` (index 0–7 = keys 1–8), unchanged from v1 except that 仙人掌果 is renamed 仙人掌 so every name fits a field cell. Lands in neither list are 平.
 
-### Crops
-
-`CROPS` (index 0–7 = keys 1–8): `{ key, name, emoji, cost, days, sell, likes: [biome…], hates: [biome…], tough }`. Lands in neither list are 平.
-
-| # | key | name | emoji | cost | days | sell | 喜 likes | 忌 hates | tough |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `radish` | 萝卜 | 🥕 | 2 | 2 | 5 | snow | desert | 1 |
-| 2 | `corn` | 玉米 | 🌽 | 4 | 3 | 10 | grass | snow | 1 |
-| 3 | `mushroom` | 蘑菇 | 🍄 | 5 | 3 | 13 | rain | grass, desert | 1 |
-| 4 | `cactus` | 仙人掌果 | 🌵 | 3 | 4 | 9 | desert | rain | 2 |
-| 5 | `melon` | 西瓜 | 🍉 | 6 | 4 | 18 | desert | rain, snow | 1 |
-| 6 | `banana` | 香蕉 | 🍌 | 8 | 5 | 26 | rain | desert, snow | 1 |
-| 7 | `icegrape` | 冰葡萄 | 🍇 | 10 | 5 | 34 | snow | grass, rain, desert | 0 |
-| 8 | `potato` | 土豆 | 🥔 | 3 | 4 | 7 | — | — | 99 |
-
-The seed hint line for the selected crop reads `🍉 西瓜 · 6 金 · 4 天 · 喜 沙漠 · 忌 雨林 雪原 · 耐 1 天`. For 土豆 it reads `· 不挑地形`, and for 冰葡萄 `· 耐 0 天`.
+| # | key | name | cost | days | sell | 喜 likes | 忌 hates | tough |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `radish` | 萝卜 | 2 | 2 | 5 | snow | desert | 1 |
+| 2 | `corn` | 玉米 | 4 | 3 | 10 | grass | snow | 1 |
+| 3 | `mushroom` | 蘑菇 | 5 | 3 | 13 | rain | grass, desert | 1 |
+| 4 | `cactus` | 仙人掌 | 3 | 4 | 9 | desert | rain | 2 |
+| 5 | `melon` | 西瓜 | 6 | 4 | 18 | desert | rain, snow | 1 |
+| 6 | `banana` | 香蕉 | 8 | 5 | 26 | rain | desert, snow | 1 |
+| 7 | `icegrape` | 冰葡萄 | 10 | 5 | 34 | snow | grass, rain, desert | 0 |
+| 8 | `potato` | 土豆 | 3 | 4 | 7 | — | — | 99 |
 
 ### Route
 
-`genRoute(rnd) → { route, markets }`. `route[1..30]` holds biome keys (index 0 unused). `markets[d] = { hot, cold }` holds crop indices.
-1. Build segments until 30 days are filled. The first segment is `grass`. Each later segment draws uniformly from the other three land types, redrawing on a repeat of the previous one. Each length is 2 or 3 (`2 + floor(rnd() × 2)`). The last segment is cut at day 30.
-2. Set `route[d] = 'market'` for d in `MARKET_DAYS = [6, 12, 18, 24, 30]`. Each market draws `hot = floor(rnd() × 8)`, then redraws `cold` until it differs from `hot`.
-
-`price(cropIdx, day)` is `sell × 2` if hot, `floor(sell / 2)` if cold, else `sell`. `startRound()` calls `genRoute(rng)`.
+`genRoute(rnd) → { route, markets }`, as v1: `route[1..30]` from segments of 2–3 days (first `grass`, never the same land twice in a row), `route[d] = 'market'` for `MARKET_DAYS = [6, 12, 18, 24, 30]`, and each market draws `hot`, then a different `cold`.
 
 ### State and rules
 
 ```js
 state = {
-  phase: 'title' | 'play' | 'end', day: 1..30, dayT: 0, speed: 1 | 2, paused: false,
-  coins: 20, route, markets, selected: 0..7,
+  phase: 'ready' | 'play' | 'end', day: 1..30, dayT: 0, paused: false,
+  coins: 40, route, markets, selected: 0..7,
   plots: [16 × null | { crop, pts, harm, ripe, age, allLiked, withered }],
-  barn: [8 ints], harvests: 0, lost: 0, soldHotToday: 0, roundAchievements: Set,
+  barn: [8 ints], harvests: 0, lost: 0, soldHotToday: 0,
 }
 ```
 
-- `relation(cropIdx, biome) → 2 | 1 | 0` (喜 / 平 / 忌). `market` is always 1.
-- `plant(i, cropIdx) → bool`: the plot must be empty, `coins ≥ cost` and `phase === 'play'`. Subtracts the cost, creates `{ crop, pts: 0, harm: 0, ripe: false, age: 0, allLiked: true, withered: false }`, and plays the plant sound. A failure on an empty plot toasts `金币不够`.
-- `harvest(i) → bool`: on a withered plot, clears it and returns false. On a ripe plot: `barn[crop]++`, `harvests++`, clears the plot, and unlocks `thrive` if `allLiked`. Otherwise it returns false. Tapping a growing plot shows its seed hint as a toast instead.
-- `sell(cropIdx) → gained`: only on a market day. Sells the whole barn stack at `price`. Adds `n` to `soldHotToday` if the crop is today's hot crop, and unlocks `hot_seller` once that reaches 5. `sellAll()` sells every stack in index order.
-- `endOfDay()`, for the current day `d`:
-  1. Clear plots withered on an earlier day.
-  2. For each ripe crop, `age++`. At 3 it rots: `lost++`, the plot clears, and the game toasts `<name>烂在地里了`.
-  3. For each growing crop, take `r = relation(crop, route[d])`. If `r = 2`, add 3 points. If `r = 1`, add 2 and set `allLiked = false`. If `r = 0`, `harm++` and `allLiked = false`, and `harm > tough` sets `withered = true` and `lost++` (shown as 🥀 for the next day). Then `pts ≥ 2 × days` sets `ripe = true`.
-  4. `day++` and `soldHotToday = 0`. Past day 30 it calls `finishVoyage()` instead.
-- `update(dt)`: only while playing and not paused. Adds `dayT += dt × speed`, and while `dayT ≥ DAY_SECONDS` it subtracts `DAY_SECONDS` and runs `endOfDay()`. It also advances animations.
-- A crop planted at any moment of day `d` receives day `d`'s tick.
+`boss` and the feedback state (`flashes`, `msg`, `dispCoins`, `active`, `drag`) live outside `state`, so the rules stay testable.
 
-### Screen (logical 480 × 800, portrait)
+- `relation(c, biome) → 2 | 1 | 0` (喜 / 平 / 忌); `market` is always 1.
+- `price(c, d)`: on a market day `sell × 2` if hot, `floor(sell / 2)` if cold, else `sell`; on any other day `floor(sell / 2)` (收购商).
+- `plant(i, c)`: in `ready` it first calls `beginPlay()`. Needs `phase === 'play'`, an empty plot and `coins ≥ cost`; otherwise the status bar says `余额不足：<name>进价 N，当前 N` and K1 and the seed's 进价 cell flash red.
+- `harvest(i)`: clears a withered plot (returns false) or moves a ripe crop to `barn`, `harvests++`, and unlocks `thrive` if `allLiked`.
+- `sell(c)`: any day while playing; sells the whole stack at `price(c, day)`. On a market day, hot sales add to `soldHotToday` and unlock `hot_seller` at 5. `sellAll()` sells every stack.
+- `leaveMarket()`: only on a market day while playing; sets `dayT = 0` and runs `endOfDay()`.
+- `endOfDay()`: as v1. Clears plots withered earlier; ripe crops age and rot at `RIPE_WAIT = 3`; growing crops get +3 / +2 / harm by today's relation and wither when `harm > tough`; `pts ≥ 2 × days` ripens. Then day 30 calls `finishVoyage()`, otherwise `day++` and `soldHotToday = 0`, and arriving at a market says so in the status bar.
+- `update(dt)`: always runs feedback animation (frozen under the boss key). The clock moves only in `play`, not paused, not `boss` and not on a market day. It adds `dt` to `dayT` and runs `endOfDay()` per `DAY_SECONDS`, stopping at a market day even inside one large `dt`.
+- `newRound()`: new `state` in `ready` with a new route, new `roundAchievements`, feedback reset. `beginPlay()`: `ready → play` and sends `start`. `startRound()` = both (used by the tests).
+- `finishVoyage()`: `phase = 'end'`, then achievements `voyage` (≥ 800), `no_loss` (≥ 800 and `lost === 0`), `tycoon` (≥ 1500), then `stats`, then `end`.
+- `togglePause()`, `selectSeed(c)`, `toggleBoss()`.
+- Pausing on `visibilitychange` to hidden, as v1.
 
-Scaled with `view.s = min(w/480, h/800)` and centred. Landscape iframes get letterboxing filled with the current land's ground colour.
+### Window (Excel chrome, office-camouflage D7)
 
-- **HUD (y 0–56):** `第 7 / 30 天` with a thin day-progress bar, `💰 123 / 800`, and buttons `⏸` and `1×`/`2×`.
-- **Forecast strip (y 64–168):** 6 tiles of 72 × 96 with 6 px gaps. Today is outlined white and labelled `今天`, the others `+1`…`+5`. Each tile shows the land emoji and name. A market tile adds `🔥<hot emoji>` and `❄<cold emoji>`. When a seed is selected, each tile gets a 4 px border: `#4caf50` 喜, `#9e9e9e` 平, `#e53935` 忌. Past day 30 the tiles show `终点`.
-- **Turtle (y 176–560):** the field rides on a shell ellipse (`#4f7d3a`, hex pattern) with a head and four legs that step once per day. The ground behind it is the current land's colour, crossfading over 0.6 s at day change.
-  - The 4 × 4 plots are 80 × 80 with 8 px gaps, centred on the shell.
-  - A growing crop's emoji grows from 20 to 44 px with `pts`, with a progress bar under it and red harm pips (`harm` filled of `tough + 1`).
-  - A small dot in the corner shows today's relation, in the strip colours.
-  - Ripe crops sparkle, and blink on their last day (`age === 2`). Withered crops show 🥀.
-- **Seeds (y 570–690):** 8 buttons of 110 × 56 in 2 rows, each showing emoji, name and `N 金 · N 天`. The selected seed is outlined. Unaffordable seeds are dimmed but still selectable for their hint. The seed hint line sits under the buttons.
-- **仓库 (y 700–792):** 8 counts as `emoji ×n`. On a market day it becomes `集市`: each crop with stock shows its price (hot in red with 🔥, cold in blue) and is tappable to sell, and a `全部卖出` button appears. On day 30 the panel also shows `靠岸结算`, which calls `finishVoyage()`, and the header line `最后一站！卖不掉的都带不走`.
-- **Title:** `玄武农场`, subtitle `在神龟背上种田，赶在下一个集市前收成`, three rule lines, and an `启程` button. The rule lines are `选种子，点空地播种；点成熟的作物收获。`, `看前方的路线：作物在喜欢的地形长得快，在讨厌的地形会枯萎。` and `到集市卖掉收成，三十天内攒够 800 金币。`
-- **Pause overlay:** `暂停中`, with `继续` and `重新开始`. *Changed in M1:* it does not cover the screen, because D3 keeps the field, seeds and market usable while paused. The HUD's `⏸`/`1×` buttons become `重新开始` and `▶ 继续`, the ground dims, and a pill `⏸ 暂停中 · 仍可播种、收获、卖出` sits above the field.
-- **End:** a win shows `满载而归！`, a loss shows `盘缠不够……`. Both show `金币 N / 800`, `收获 N`, `损失 N` and `再来一趟`, which starts a new route.
-- **Sounds:** plant (short low blip), harvest (rising pop), sell (two-note coin), wither (falling tone), market arrival (two-tone horn at the start of a market day) and a soft step at each day change.
+The canvas fills the window. From the top: green title bar (34 px, `农产品采购计划_2026.xlsx - Excel`, window buttons), ribbon tabs with `开始` active, ribbon groups (hidden when the window is under 560 px tall), name box + `fx` formula bar, then the grid, then sheet tabs (`玄武物流`, `采购汇总`, `供应商`, `+`) and the green status bar. The chrome is drawn at 1:1; only the grid zooms, by `z = min(fit width, fit height)` floored to 5% and clamped to 50–160%, shown at the status bar's right end. Columns and rows past the used block are drawn empty to fill the window. `frame(widths)` computes all of this from the window size, and both drawing and hit tests call it.
 
-Keyboard: `1`–`8` select a seed, Space pauses, `F` toggles speed, `M` mutes. Plant, harvest and sell stay pointer-only.
+Columns (logical px at 100%): A 60 · B–G 60 · H 12 · I 22 · J 60 · K–M 36 · N 44 · O 90 · P 30 · Q 12 · R 40 · S 50 · T 56. Rows: 1 is 26, the rest 22.
 
-### Functions
+### Sheet `玄武物流`
 
-- `startRound()`: resets `state` and `roundAchievements`, runs `genRoute(rng)`, sets `phase = 'play'` and sends `start`. Called by `启程` and `再来一趟`.
-- `genRoute(rnd)`, `relation(c, b)`, `price(c, d)`, `plant(i, c)`, `harvest(i)`, `sell(c)`, `sellAll()`, `endOfDay()` and `update(dt)`, as above.
-- `finishVoyage()`: sets `phase = 'end'`, then sends achievements, `stats` and `end`, in that order.
-- `restart()`: during play it sends `stats` with `wins: 0` and then `end`. Then it returns to the title screen.
+| Range | Content |
+| --- | --- |
+| A1 | `玄武物流 · 农产品采购计划` (bold). J1:O1 `余额` N (counts up), `目标` 800, `进度` `第 N / 30 天`. |
+| A2:G6 | Forecast. Row 2 `日期`: `今天`, `第N天`…; past day 30 `—`. Row 3 `地形`: land names, markets bold; today's cell carries a blue data bar for the day's progress, or `集市 ⏸` on a market day. Row 4 `适宜度`: 喜 (good) / 平 (grey text) / 忌 (bad) for the selected seed. Rows 5–6 `热销` / `滞销`: on market columns `<name> ↑` (good) and `<name> ↓` (bad). |
+| A8:E12 | Field. Header `地块 甲 乙 丙 丁`, row labels `1 垄`…`4 垄`. Cells per D4: growing `<icon> <name>` with a data bar of `pts / (2 × days)`; ripe `<name> ✓`, or `<name> 快烂` in red on its last day; withered `<name> 枯萎`. |
+| F9:G10 | On a market day, a grey form button `离开集市` / `靠岸结算` with a softly pulsing green outline. |
+| I2:P10 | 种子目录: a checkbox column (the selected seed is ticked and its name bold), `品种` (`N 名称`), `进价` (bad format when unaffordable), `周期`, `售价`, `喜`, `忌` (names joined with `/`), `耐`; 土豆 shows `—`. |
+| R2:T11 | 仓库, aligned with the seed rows: `库存`, `收购价` or `集市价` (header changes on market days; hot good with ↑, cold bad with ↓), `操作` = a `卖出` link when stock > 0. Row 11: `合计`, total value at today's price, `全部卖出`. |
+| A14 | Grey note: market and 收购商 prices, the market pause, 喜/忌. |
+
+The formula bar shows the active cell (the last clicked cell, default A1). Each cell carries a formula-style description: `=生长("西瓜", 6/8, 受损 1/2, 今日雨林 忌)`, `=成熟("西瓜")  ' 还能放 2 天，点击收获`, `=种子("西瓜", 进价 6, 周期 4, 售价 18, 喜 "沙漠", 忌 "雨林/雪原", 耐 1)`, `=收购价("西瓜")  ' 售价 18 的一半`, and so on. The active cell's column letter and row number are highlighted.
+
+Status bar left: a message for 3 s after an event (sales, losses, market arrival, `余额不足`, pause, sound), otherwise `就绪  按 1–8 选种子，点空白地块播种开始；Esc 切换工作表` (ready), `就绪  第 N 天 NN%` (play), `集市（时间暂停）  卖完点「离开集市」或回车`, `已暂停  空格继续`, `结算完成  回车或点「新建计划」再来一趟`. Right: `平均值` (mean growth of growing crops), `计数` (planted plots), `求和` (coins), zoom.
+
+End: a plain dialog `结算报告` over the sheet: `第 30 天已结束。余额 N，目标 800。`, then `已达成目标。` / `超过 1500，富甲一方。` / `未达成目标，还差 N。`, then `收获 N，损失 N。`, and a `新建计划` button (or Enter), which calls `newRound()`.
+
+Boss sheet `采购汇总`: `2026 年农产品采购汇总（单位：千元）`, 13 regions × 9 months of hashed numbers, `合计`, and a `同比` column in good/bad formats; status bar `就绪` with fixed sums.
+
+Sounds (only after `M`): plant, harvest, sell, wither, market arrival, not enough coins, win, lose; v1's tones at lower volume.
+
+### Input
+
+- `pointerdown` on a field cell: plant, harvest or clear as D13, sets the active cell, starts a drag. On a growing crop it only selects the cell (the formula bar explains it).
+- `pointermove` during a drag: each new field cell gets the drag's action; the range from the start cell is shaded.
+- `pointerdown` on a seed-table row: `selectSeed`. On `卖出`: `sell(c)`. On `全部卖出`: `sellAll()`. On the market button: `leaveMarket()`. On tab `采购汇总` / `玄武物流`: boss on / off. In `end`, only the dialog button works.
+- Keys: `1`–`8` select, Space pause, Enter leave market / new plan, `Esc` boss, `M` sound. Under the boss key only `Esc` and `M` work.
+- `pointerup`, `pointercancel` and window `blur` end the drag. The mouse cursor is `cell` over the grid and `pointer` over links and the button.
 
 ### Achievements
 
-Emitted through `unlockAchievement(key)` (adds to `roundAchievements`, sends once per round), before `stats`/`end`.
-
 | key | Trigger |
 | --- | --- |
-| `thrive` | `harvest(i)` of a crop with `allLiked` (every growth tick was 喜). |
+| `thrive` | `harvest(i)` of a crop with `allLiked`. |
 | `hot_seller` | `soldHotToday ≥ 5` within one market day. |
 | `voyage` | `finishVoyage()` with `coins ≥ 800`. |
 | `no_loss` | `finishVoyage()` with `coins ≥ 800` and `lost === 0`. |
 | `tycoon` | `finishVoyage()` with `coins ≥ 1500`. |
 
-End-of-voyage achievements are sent in the order `voyage, no_loss, tycoon`.
-
 ### Stats
 
-In `finishVoyage()` and `restart()`, before `end`: `emitMoYuFunStats({ rounds: 1, wins: <0|1>, harvests: Math.min(harvests, 300), coins: Math.min(coins, 1000000) })`. `wins` is 1 only from `finishVoyage()` with `coins ≥ 800`.
+In `finishVoyage()`, after achievements and before `end`: `emitMoYuFunStats({ rounds: 1, wins: <0|1>, harvests: min(harvests, 300), coins: min(coins, 1000000) })`.
 
 ### Headless test
 
-`v1/test_headless.js` uses 乱刃 v4's stub pattern. Each case sets `rng = mulberry32(seed)` before `startRound()`.
+`v2/test_headless.js` uses v1's stub pattern (a `Proxy` 2D context, stubbed `parent.postMessage`, `setTimeout` that never fires) at a 1000 × 625 window. `DS = DAY_SECONDS`.
 
-**Load.** Only `ready` is sent until `startRound()`.
+- **Load:** exactly `ready, disguise` with `app: 'excel'` and the window title; phase `ready` with a route; `update(100)` does nothing; selecting a seed sends nothing; the first `plant` sends `start` and the clock then runs.
+- **Route:** v1's checks for seeds 1–50.
+- **Growth:** v1's hand-set route cases at `update(DS)` (radish on snow, melon in rain, ice grape on grass, potato everywhere, rot after 3 day-ends), `update` stops while paused and under the boss key, and plant/harvest/sell refuse invalid moves.
+- **收购商:** 3 bananas sell for 39 on a plain day; a radish buys at 2.
+- **Market:** after 5 day-ends the clock stops on day 6 (`update(1000)` changes nothing), `sellAll()` pays hot/cold/normal prices, `leaveMarket()` runs day 6's tick (+2) and is refused on other days, and one huge `update` stops at the market.
+- **Balance bots** (seeds 1–200, `update(DS)` per day, `leaveMarket()` on market days). Each day a bot harvests every ripe or withered plot, sells on market days (`forecastBot` keeps the cold crop unless it is day 30), then fills empty plots in index order. Bots never sell to the 收购商. `randomBot` picks uniformly among affordable crops with `day + days ≤ 30`; `potatoBot` plants 土豆 while `day + 4 ≤ 30`; `forecastBot(K)` simulates each affordable crop over `route[day..day+K]` (later days 平), skips crops that wither or ripen on day ≥ 30, values them at the first market after ripening if visible else `sell`, and plants the best positive `(value − cost) / (ripeDay − day + 1)`.
 
-**Route.** For seeds 1–50, `genRoute` is deterministic (the same output twice), and markets fall on exactly days 6, 12, 18, 24 and 30. Days 1–2 are `grass`. Every run of one land type between changes is 2 or 3 days long; a run may be cut short by a market day or day 30. Two consecutive segments are never the same land. Hot and cold differ.
+| bot | must reach 800 in | measured |
+| --- | --- | --- |
+| `forecastBot(5)` | ≥ 95% | 99.5% (1500: 37.5%, median 1382) |
+| `forecastBot(0)` | ≤ 5% | 0.5% |
+| `potatoBot` | ≤ 5% | 3.5% (median 468) |
+| `randomBot` | ≤ 5% | 0% (median 110) |
 
-**Growth rules.** On a hand-set route:
-- 萝卜 planted on a 雪原 day ripens after 2 day-ends.
-- 西瓜 survives 1 雨林 day-end and withers on the second.
-- 冰葡萄 withers on its first 草原 day-end.
-- 土豆 ripens after 4 day-ends on any land.
-- A ripe crop left for 3 day-ends rots, with `lost === 1`.
-- `update(12)` at 1× and `update(6)` at 2× each run exactly one `endOfDay()`. While paused, `update` does nothing.
-
-**Balance bots.** Each bot plays seeds 1–200 through `plant`/`harvest`/`sell`/`update(12)`. At the start of each day it:
-1. Harvests every ripe plot and clears withered ones.
-2. On a market day, sells: `forecastBot` sells everything except the cold crop (unless it is day 30), the others sell everything.
-3. Fills empty plots in index order with its chosen crop while it can afford it.
-
-The bots:
-- `randomBot`: a uniform pick from crops with `cost ≤ coins` and `day + days ≤ 30`, using `mulberry32(seed ^ 0x9e37)`.
-- `potatoBot`: 土豆 while `day + 4 ≤ 30`.
-- `forecastBot(K)`: for each affordable crop, simulates points and harm from today using `route[day..day+K]`, treating later days as 平. It skips crops that would wither or ripen on day ≥ 30. Value is `price` at the first market after the ripe day if that market is ≤ `day + K`, else `sell`. It plants the best positive `(value − cost) / (ripeDay − day + 1)`.
-
-| bot | must reach 800 in |
-| --- | --- |
-| `forecastBot(5)` | ≥ 85% of seeds |
-| `forecastBot(0)` | ≤ 5% |
-| `potatoBot` | ≤ 5% |
-| `randomBot` | ≤ 5% |
-
-Throughout, `coins ≥ 0`, the barn counts are ≥ 0, and every voyage ends with `…, stats, end`.
-
-**Deterministic voyage.** `startRound()`, then overwrite the route:
-- `route` = days 1–2 `snow`, 3–5 `desert`, 7–29 `grass`, with the market days kept.
-- `markets[6] = { hot: 0 (萝卜), cold: 7 (土豆) }`; the other markets are `{ hot: 1, cold: 2 }`.
-
-Then:
-1. Day 1: plant 萝卜 in plots 0–4, 西瓜 in plot 5 and 土豆 in plot 6 (coins 20 → 1). Run `update(12)` twice: the radishes ripen, and the melon withers (2 snow harms > tough 1).
-2. Day 3: harvest plots 0–4. The first harvest sends `thrive`. Run `update(12)` twice; the potato ripens at the end of day 4.
-3. Day 5: harvest plot 6. Run `update(12)` to reach day 6.
-4. Day 6: `sellAll()`. The radishes give 5 × 10, sending `hot_seller`, and the potato gives 3, for coins = 54.
-5. Set `coins = 1600` and run `update(12)` until `phase === 'end'` (25 calls).
-
-Expected sequence: `start, thrive, hot_seller, voyage, tycoon, stats, end` (no `no_loss`: the melon withered). Expected stats: `{ rounds: 1, wins: 1, harvests: 6, coins: 1600 }`.
-
-**Clean win.** `startRound()`, set `coins = 800`, then 30 × `update(12)`. Expected: `start, voyage, no_loss, stats, end`, with stats `{ rounds: 1, wins: 1, harvests: 0, coins: 800 }`.
-
-**Loss and restart.** Thirty idle days give `start, stats, end` with `wins: 0, coins: 20`. `restart()` mid-round gives `stats, end`. On the title screen it sends nothing.
+- **Deterministic voyage:** v1's scripted voyage with the new numbers (day 1 coins 40 → 21; day 6 `sellAll()` = 53 → 74), then `coins = 1600` and 25 more days. Sequence `start, thrive, hot_seller, voyage, tycoon, stats, end`; stats `{ rounds: 1, wins: 1, harvests: 6, coins: 1600 }`. After the end nothing can be planted, sold or left, and `newRound()` returns to `ready` silently.
+- **Clean win** (`coins = 800`, 30 idle days): `start, voyage, no_loss, stats, end`. **Loss** (30 idle days): `start, stats, end`, `coins: 40`.
+- **Layout:** at 1000×625, 800×500, 1440×820, 375×667 and 320×240 the zoom stays in 50–160%, a click at C10's centre hits plot 5, and `draw()` runs.
+- Every message has exactly the protocol's keys, including `disguise`.
 
 ## Milestones
 
-Each milestone ends with `node games/turtle-farm/v1/test_headless.js` passing.
+Each milestone ends with `node games/turtle-farm/v2/test_headless.js` passing.
 
-**M1 · Playable voyage.** Route generation, growth rules, plant/harvest/sell, forecast strip with seed tint, turtle and field rendering, drag actions, pause and speed, title/pause/end screens, sounds, and the route, growth and balance-bot tests.
-Done when: a full voyage plays in a browser with mouse and touch (mobile emulator), and the balance table passes.
+**M1 · Playable sheet.** Rules carried over from v1 plus the market stop, 收购商, 40 金 and 8 s days; the Excel chrome, sheet, boss sheet, end dialog, input, sounds; the route, growth, market and balance tests.
+Done when: a voyage plays in a browser with mouse, and the balance table passes.
 
-**M2 · Achievements, stats, package.** `game.json`, emission, the deterministic, clean-win and loss tests, `README.md`.
-Done when: `pnpm game check turtle-farm v1` passes.
+**M2 · Package.** `game.json`, achievements and stats, `disguise`, the deterministic, win, loss and layout tests, `README.md`.
+Done when: `pnpm game check turtle-farm v2` passes.
 
-**M3 · Local release.** `pnpm game:local publish turtle-farm v1 --yes`.
-Done when: `/play/turtle-farm` plays locally, and a logged-in round unlocks `thrive` and updates the board. The owner runs the production publish.
-
-### M3 notes
-
-- Local publish registered the game, its achievements and stats; the smoke test found `/play/turtle-farm` serving v1.
-- Played a voyage to day 18 in the browser with real clicks: planting single plots, a drag-plant sweep (with stepwise pointer moves) that stopped at `金币不够`, harvesting ripe crops into the 仓库, 2× speed, pausing and the paused top bar, and the day-18 market (`到集市了！`, 🔥/❄ prices, `全部卖出` turning 2 萝卜 + 4 玉米 at the cold price into 30 金). No console errors.
-- On `/play/turtle-farm`, 启程 then pause and `重新开始` wrote `game_ready`, `game_start` and `game_end` to the local events table. No account was logged in, so the achievement popup and stats board were not exercised in the browser.
-- Gotcha for automated testing: the browser pane's built-in drag jumps from start to end, so a drag-plant only hits the first and last plot; real pointers send intermediate moves.
-- Markets do not pause the game. A player who reaches a market with no crops, or lets it pass, waits six days for the next one, and with no coins can't plant meanwhile. Worth watching in the owner's playtest (Open items).
-
-## Open items
-
-- The 800 target and the 12 s day were set from bot simulations, not people. After M1 the owner playtests a few voyages at 1×. If humans fall far from the bot (target too hard, or 16 plots too busy in 12 s), the owner adjusts `TARGET` or `DAY_SECONDS`, and the bot bands in the test stay as they are.
+**M3 · Release.** `pnpm game:local publish turtle-farm v2 --yes`, a browser check on local `/play/turtle-farm` including 伪装 mode, then the production publish.
+Done when: production serves v2 and camouflage mode works with it.
 
 ## Implementation notes
 
-D1–D11 hold as written. The model is the prototype's, and the headless test reproduces the D9 numbers exactly: `forecastBot(5)` 94.0% ≥ 800 (15.0% ≥ 1500, median 1157), `forecastBot(0)` 0%, `potatoBot` 0% (median 356), `randomBot` 0% (median 47). The prototype's potato bot also held back the cold crop; the test follows this doc (only `forecastBot` holds it), which changes nothing.
+- Measured balance is in D11; the test reproduces it exactly. An earlier bot rule that sold everything to the 收购商 whenever coins ran low cut `forecastBot(5)` to 74–80% and pinned `potatoBot` at its starting 40 (it sold each potato crop back at cost just before a market), which is what showed the 收购商 is break-even. So the bots sell only at markets.
+- Text widths are clipped per cell instead of measured, except for the hyperlink underline, which uses v1's character-class estimate, so the headless stub can draw every screen.
+- The visual check used a separate headless Chrome on a scratch copy: screenshots of the ready, play, market, boss and end states at 1000×625, 800×500 (compact ribbon, 80% zoom) and 1440×820, plus a CDP-driven session with real mouse and key events (key 8, a drag-plant across six cells, seed-row click, Space, Esc twice, market arrival with the clock stopped for 1 s, click-harvest, `全部卖出`, `离开集市`). No real touch device was used.
 
-- Changed in M1: the pause overlay is non-blocking (see Screen). The doc's two requirements (an overlay with 继续/重新开始, and the field working while paused) could not both hold with a full-screen card.
-- Layout moved a few pixels to fit everything in 800: strip tiles at y 62–158, seed buttons 110 × 52 at y 568 and 624, hint line at y 684, 仓库 card at y 702–794. The shell is a superellipse (n = 6) around the 344 px field, so the head and legs only peek out at the screen edges.
-- `update(dt)` always advances animations; only the clock stops while paused or off `play`. Animation state (particles, flying emoji, toasts, strip slide, ground crossfade) lives outside `state`, so the rules stay testable and `update(12)` in the bots simply flushes it.
-- `roundAchievements` is the SDK block's global (as in other games), not a `state` field.
-- Additions not in the doc: 仓库 cells show the base sell price (seed buttons show only cost and days, so the player had no other way to learn it before the first market); a `下个集市：第 N 天（还有 N 天）` line; a 喜/平/忌 letter badge on each strip tile, so the tint does not rely on colour alone; `快烂了` on a ripe crop's last day; toasts for withering and market arrival; rot and wither toasts merge per crop per day (`萝卜×3 烂在地里了`); `金币不够` also flashes the coin counter red; small key numbers on seed buttons; a `🔇` corner mark while muted.
-- Input: plots act on `pointerdown` (so a drag starts at once); buttons fire on `pointerup` only when the press started in the same button, and every button function re-checks the current state, so a stale frame cannot fire a disabled action. Taps outside plots and buttons do nothing. A drag that starts on a growing plot shows its hint and does nothing else.
-- Text width is estimated by character class instead of `measureText`, so the headless stub can draw every screen; the test draws the title, play, paused, market and end screens.
-- The visual check used screenshots from a separate headless Chrome on a scratch copy, plus synthetic pointer events (start, seed select, drag-plant, drag-harvest, empty tap, pause, plant while paused). A real touch device and the mobile emulator were not used; that is part of M3's browser playtest.
+## Open items
+
+- The 800 target and 8 s day come from bots, not people. The owner plays a few voyages; if humans land far from 800 either way, adjust `TARGET` (and the achievement copy) or `DAY_SECONDS`, and leave the bot bands as they are.
+
+## v1 and why it changed
+
+v1 (`games/turtle-farm/v1/`, published 2026-10-02) drew the field on a cartoon turtle shell with emoji crops, a forecast strip of land tiles, seed buttons and a market panel, on a 480 × 800 portrait canvas with a title screen. Days were 12 s with a 2× toggle, the player started with 20 金, and goods could only be sold on market days, which passed on the timer. Its balance was `forecastBot(5)` 94% ≥ 800.
+
+The user rejected the cute emoji look, and the v1 playtest found the pacing problem: a player who reached a market with nothing ripe, or let it pass, waited six days, and with no coins could not plant meanwhile. v2 keeps the rules and fixes both: the office-camouflage Excel skin (D3, D4, D9, D10), markets that wait for the player (D5), the 收购商 (D6), and a faster, richer start (D7).
+
+### M3 notes (v2)
+
+- Local publish registered v2. On `/play/turtle-farm` the game entered 伪装 on load (preference on) with the tab title `农产品采购计划_2026.xlsx - Excel`. Real clicks planted 萝卜 in three cells (余额 40 → 34, yellow growth bars, formula bar `=生长("萝卜", 0/4, 受损 0/2, 今日草原 平)`).
+- In the standalone page, fast-forwarding with `update(0.1)` reached the day-6 market, after which 30 more simulated seconds left `day` and `dayT` unchanged; the sheet showed `离开集市` and the status bar `集市（时间暂停）`.
+- Gotcha for testing: when the browser pane is in the background it throttles `requestAnimationFrame` to ~1.5 fps, and the game caps `dt` at 0.1 s, so the day clock looks several times too slow there. At a normal frame rate a day is 8 s (headless test).
 
