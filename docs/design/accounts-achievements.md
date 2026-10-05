@@ -148,6 +148,7 @@ Grants and RLS: `achievements` has RLS on; `moyufun_web` selects active achievem
 - The lifecycle forwards an achievement only while a round is in progress (`play_id` set) and once per key per lifecycle instance (one per iframe load; "重新加载" starts a new one and the API answers `already_unlocked`). Keys not in the catalog definitions are dropped without a request.
 - **Ordering rule for games:** send achievements earned at round end **before** `end`; the site ignores achievements once the round has ended.
 - SDK helper in games: `emitMoYuFunAchievement(key)`, next to `emitMoYuFunEvent`, with the same fixed parent origin.
+- *Added by `docs/design/office-camouflage.md` D2:* `{ source, version: 1, type: "disguise", app: "excel" | "vscode", title }` (exactly five keys, `title` 1–80 characters without control characters). It is page chrome, not analytics: the lifecycle ignores it, and `GamePlayer` uses it for camouflage mode. SDK helper `emitMoYuFunDisguise(app, title)`.
 - Gotcha: the play page is static HTML, so an iframe game that posts `ready` synchronously on load can beat hydration and be missed. 乱刃 is large enough not to; a tiny fixture game needs a short delay.
 
 ### HTTP API

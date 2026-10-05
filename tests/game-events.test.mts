@@ -275,3 +275,45 @@ test("forwards stats only during a round and once per play", () => {
     { rounds: 1, kills: 5 },
   ]);
 });
+
+test("accepts a disguise message with a known app and a clean title", () => {
+  const frame = {};
+  const read = (data: Record<string, unknown>) =>
+    readGameMessage(
+      { data: { source: "moyufun-game", version: 1, ...data }, origin: "https://games.moyufuns.com", source: frame },
+      "https://games.moyufuns.com",
+      frame,
+    );
+
+  assert.deepEqual(read({ type: "disguise", app: "excel", title: "Q4预算.xlsx - Excel" }), {
+    type: "disguise",
+    app: "excel",
+    title: "Q4预算.xlsx - Excel",
+  });
+  assert.deepEqual(read({ type: "disguise", app: "vscode", title: "a" }), { type: "disguise", app: "vscode", title: "a" });
+  assert.equal(read({ type: "disguise", app: "word", title: "x" }), undefined);
+  assert.equal(read({ type: "disguise", app: "excel", title: "" }), undefined);
+  assert.equal(read({ type: "disguise", app: "excel", title: "x".repeat(81) }), undefined);
+  assert.equal(read({ type: "disguise", app: "excel", title: "a\nb" }), undefined);
+  assert.equal(read({ type: "disguise", app: "excel", title: 5 }), undefined);
+  assert.equal(read({ type: "disguise", app: "excel", title: "x", extra: 1 }), undefined);
+  assert.equal(read({ type: "disguise", app: "excel" }), undefined);
+});
+
+test("ignores disguise messages in the analytics lifecycle", () => {
+  const events: Record<string, unknown>[] = [];
+  const lifecycle = createGameLifecycle({
+    context: CONTEXT,
+    track: (event) => events.push(event),
+    unlock: () => {},
+    report: () => {},
+    now: () => 0,
+    randomUUID: () => "11111111-1111-4111-8111-111111111111",
+    isVisible: () => true,
+    setInterval: () => 0,
+    clearInterval: () => {},
+  });
+  lifecycle.load();
+  lifecycle.message({ type: "disguise", app: "excel", title: "x" });
+  assert.deepEqual(events.map((event) => event.event_type), ["game_load"]);
+});

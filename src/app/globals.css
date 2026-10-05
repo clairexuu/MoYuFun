@@ -206,6 +206,30 @@ a {
   border-radius: 0;
 }
 
+/* Camouflage mode (docs/design/office-camouflage.md D4): the game fills the window, no site chrome. */
+.game-player--camouflage,
+.game-player--camouflage:fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: block;
+  width: 100vw;
+  max-width: none;
+  height: 100dvh;
+  background: #fff;
+}
+
+.game-player--camouflage .game-frame-wrap,
+.game-player--camouflage:fullscreen .game-frame-wrap {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: #fff;
+}
+
 @media (max-width: 767px) {
   .game-player {
     width: 100%;

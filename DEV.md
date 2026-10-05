@@ -17,7 +17,7 @@
 | `src/lib/event-request.ts`、`events.ts` | 统计请求大小与逐事件校验，以及 server-only 限流和幂等写入 |
 | `src/lib/daily-metrics.ts` | `/stats` 唯一日汇总读取接口，校验筛选条件并映射最小只读结果 |
 | `src/lib/browser-events.ts` | 浏览器匿名访客、30 分钟会话和 `/api/events` 上报 |
-| `src/lib/game-events.ts` | iframe 消息校验（`ready`/`start`/`end`/`achievement`/`stats`）及加载、游玩、心跳、成就与战绩转发生命周期 |
+| `src/lib/game-events.ts` | iframe 消息校验（`ready`/`start`/`end`/`achievement`/`stats`/`disguise`）及加载、游玩、心跳、成就与战绩转发生命周期 |
 | `src/lib/auth.ts`、`auth-request.ts`、`auth-actions.ts` | server-only Supabase Auth 客户端与当前用户读取；`next` 参数与 Cookie 加固的纯函数；注册、登录、找回、重置、退出、删除账号的 Server Actions |
 | `src/lib/achievement-request.ts`、`stats-request.ts`、`achievements.ts` | 成就解锁与战绩上报的请求校验与状态映射（可单测），以及 server-only 限流与数据库调用 |
 | `src/app/api/events/route.ts` | 单事件统计入口，将合法事件交给服务端写入模块 |
@@ -26,7 +26,7 @@
 | `src/app/{signup,login,forgot-password,reset-password,me}/page.tsx`、`src/app/auth/confirm/route.ts` | 账号页面与邮件链接确认入口 |
 | `src/app/privacy/page.tsx`、`terms/page.tsx` | 隐私政策与使用条款 |
 | `src/app/stats/page.tsx`、`src/proxy.ts` | 服务端渲染内部指标看板；proxy 对 `/stats/:path*` 做 HTTP Basic Auth，并为账号路由刷新 Supabase 会话 Cookie |
-| `src/components/game-player.tsx` | 客户端播放器：可信 iframe 适配、加载与游玩事件、重试、全屏、移动端提示和成就弹窗/上报 |
+| `src/components/game-player.tsx`、`src/lib/camouflage.ts` | 客户端播放器：可信 iframe 适配、加载与游玩事件、重试、全屏、移动端提示和成就弹窗/上报；伪装模式（游戏发来 `disguise` 后出现「伪装」按钮，铺满窗口、改标签页标题和图标，见 [docs/design/office-camouflage.md](docs/design/office-camouflage.md)） |
 | `src/components/auth-form.tsx`、`auth-shell.tsx`、`account-menu.tsx`、`game-achievements.tsx` | 账号表单与页面外壳、页头账号菜单、详情页战绩板与成就列表 |
 | `src/components/page-event.tsx` | 首页与详情页的一次性访问事件 |
 | `src/components/game-card.tsx`、`game-cover.tsx` | 卡片与封面；封面由符号和配色绘制 |

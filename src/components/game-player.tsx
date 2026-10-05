@@ -5,8 +5,14 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { trackBrowserEvent } from "@/lib/browser-events";
 import {
+  disguiseIconHref,
+  readCamouflagePreference,
+  writeCamouflagePreference,
+} from "@/lib/camouflage";
+import {
   createGameLifecycle,
   readGameMessage,
+  type DisguiseApp,
 } from "@/lib/game-events";
 import type { GameAchievement } from "@/lib/games";
 
@@ -21,6 +27,16 @@ type GamePlayerProps = {
 };
 
 const POPUP_MS = 4_000;
+
+type Disguise = { app: DisguiseApp; title: string };
+
+function browserStorage() {
+  try {
+    return window.localStorage;
+  } catch {
+    return undefined;
+  }
+}
 
 export function GamePlayer({
   achievements,
@@ -46,6 +62,9 @@ export function GamePlayer({
   const [loadingSlowly, setLoadingSlowly] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [fullscreenError, setFullscreenError] = useState<string>();
+  const [disguise, setDisguise] = useState<Disguise>();
+  const [camouflaged, setCamouflaged] = useState(false);
+  const [stripOpen, setStripOpen] = useState(false);
 
   useEffect(() => {
     if (ready) return;
@@ -156,6 +175,10 @@ export function GamePlayer({
       if (!message) return;
       lifecycle.message(message);
       if (message.type === "ready") setReady(true);
+      if (message.type === "disguise") {
+        setDisguise({ app: message.app, title: message.title });
+        if (readCamouflagePreference(browserStorage())) setCamouflaged(true);
+      }
     }
 
     window.addEventListener("message", receiveGameMessage);
@@ -175,6 +198,43 @@ export function GamePlayer({
       document.removeEventListener("fullscreenchange", syncFullscreenState);
     };
   }, []);
+
+  // While camouflaged, the tab's title and icons follow the game's disguise (D4);
+  // leaving restores what the page had.
+  useEffect(() => {
+    if (!camouflaged || !disguise) return;
+    const links = Array.from(
+      document.querySelectorAll<HTMLLinkElement>('link[rel~="icon"]'),
+    );
+    const saved = {
+      title: document.title,
+      hrefs: links.map((link) => link.href),
+    };
+    document.title = disguise.title;
+    const href = disguiseIconHref(disguise.app);
+    for (const link of links) link.href = href;
+    return () => {
+      document.title = saved.title;
+      links.forEach((link, index) => {
+        link.href = saved.hrefs[index];
+      });
+    };
+  }, [camouflaged, disguise]);
+
+  async function enterCamouflage() {
+    writeCamouflagePreference(browserStorage(), true);
+    if (document.fullscreenElement) {
+      await document.exitFullscreen().catch(() => undefined);
+    }
+    setCamouflaged(true);
+    iframeRef.current?.focus();
+  }
+
+  function leaveCamouflage() {
+    writeCamouflagePreference(browserStorage(), false);
+    setStripOpen(false);
+    setCamouflaged(false);
+  }
 
   function reloadGame() {
     setReady(false);
@@ -202,8 +262,41 @@ export function GamePlayer({
   }
 
   return (
-    <section className="game-player" ref={playerRef}>
-      <div className="game-player__toolbar flex min-h-14 items-center gap-3 border border-white/[0.09] bg-[#111722] px-3 py-2 sm:rounded-t-2xl sm:px-4">
+    <section
+      className={camouflaged ? "game-player game-player--camouflage" : "game-player"}
+      ref={playerRef}
+    >
+      {camouflaged ? (
+        <div
+          className={`fixed inset-x-0 top-0 z-[60] flex items-center gap-3 overflow-hidden px-3 text-xs text-[#444] transition-[height] duration-150 ${
+            stripOpen
+              ? "h-8 border-b border-[#d4d4d4] bg-[#f3f3f3]"
+              : "h-1.5 bg-transparent"
+          }`}
+          onMouseEnter={() => setStripOpen(true)}
+          onMouseLeave={() => setStripOpen(false)}
+        >
+          {stripOpen ? (
+            <>
+              <span className="min-w-0 flex-1 truncate">{title}</span>
+              <Link className="shrink-0 hover:underline" href={detailHref}>
+                返回详情
+              </Link>
+              <button
+                className="shrink-0 hover:underline"
+                onClick={leaveCamouflage}
+                type="button"
+              >
+                退出伪装
+              </button>
+            </>
+          ) : null}
+        </div>
+      ) : null}
+
+      <div
+        className={`game-player__toolbar flex min-h-14 items-center gap-3 border border-white/[0.09] bg-[#111722] px-3 py-2 sm:rounded-t-2xl sm:px-4${camouflaged ? " hidden" : ""}`}
+      >
         <Link
           aria-label={`返回 ${title} 详情页`}
           className="inline-flex min-h-10 shrink-0 items-center gap-2 rounded-lg px-3 text-sm font-semibold text-[#aab4c8] transition hover:bg-white/[0.06] hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8fa4ff]"
@@ -216,6 +309,16 @@ export function GamePlayer({
           <p className="truncate text-sm font-semibold text-white">{title}</p>
           <p className="hidden text-xs text-[#69758f] sm:block">键鼠游戏</p>
         </div>
+        {disguise ? (
+          <button
+            className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04] px-3 text-sm font-semibold text-[#c5cede] transition hover:border-[#7189ff]/50 hover:bg-[#7189ff]/10 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8fa4ff]"
+            onClick={enterCamouflage}
+            title="游戏铺满窗口，标签页显示为办公文件"
+            type="button"
+          >
+            伪装
+          </button>
+        ) : null}
         <button
           className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04] px-3 text-sm font-semibold text-[#c5cede] transition hover:border-[#7189ff]/50 hover:bg-[#7189ff]/10 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8fa4ff]"
           onClick={toggleFullscreen}
@@ -225,7 +328,7 @@ export function GamePlayer({
         </button>
       </div>
 
-      <div className="game-player__mobile-note border-x border-white/[0.09] bg-[#151926] px-4 py-2.5 text-center text-xs leading-5 text-[#aeb8cc] md:hidden">
+      <div className={`game-player__mobile-note border-x border-white/[0.09] bg-[#151926] px-4 py-2.5 text-center text-xs leading-5 text-[#aeb8cc] md:hidden${camouflaged ? " hidden" : ""}`}>
         当前游戏使用键盘和鼠标操作，建议在电脑端游玩。
       </div>
 
@@ -241,7 +344,7 @@ export function GamePlayer({
           title={`${title} 游戏画面`}
         />
 
-        {popup ? (
+        {popup && !camouflaged ? (
           <div
             aria-live="polite"
             className="absolute top-3 right-3 z-10 flex max-w-xs items-center gap-3 rounded-xl border border-white/15 bg-[#111722]/95 px-4 py-3 shadow-[0_12px_40px_rgba(0,0,0,0.45)] backdrop-blur"

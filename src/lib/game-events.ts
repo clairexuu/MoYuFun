@@ -4,10 +4,14 @@ export const ACHIEVEMENT_KEY_PATTERN = /^[a-z0-9]+(?:_[a-z0-9]+)*$/;
 
 export type StatsReport = Record<string, number>;
 
+export const DISGUISE_APPS = ["excel", "vscode"] as const;
+export type DisguiseApp = (typeof DISGUISE_APPS)[number];
+
 export type GameMessage =
   | { type: "ready" | "start" | "end" }
   | { type: "achievement"; key: string }
-  | { type: "stats"; stats: StatsReport };
+  | { type: "stats"; stats: StatsReport }
+  | { type: "disguise"; app: DisguiseApp; title: string };
 
 type MessageLike = {
   data: unknown;
@@ -42,6 +46,20 @@ export function isStatsReport(value: unknown): value is StatsReport {
   );
 }
 
+function isDisguiseApp(value: unknown): value is DisguiseApp {
+  return (DISGUISE_APPS as readonly unknown[]).includes(value);
+}
+
+// 1–80 characters, no control characters (office-camouflage D2).
+function isDisguiseTitle(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length >= 1 &&
+    value.length <= 80 &&
+    !/[\u0000-\u001f\u007f]/.test(value)
+  );
+}
+
 function parseGameMessage(value: unknown): GameMessage | undefined {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return undefined;
@@ -72,6 +90,15 @@ function parseGameMessage(value: unknown): GameMessage | undefined {
 
   if (keys === 4 && message.type === "stats" && isStatsReport(message.stats)) {
     return { type: "stats", stats: message.stats };
+  }
+
+  if (
+    keys === 5 &&
+    message.type === "disguise" &&
+    isDisguiseApp(message.app) &&
+    isDisguiseTitle(message.title)
+  ) {
+    return { type: "disguise", app: message.app, title: message.title };
   }
 
   return undefined;
@@ -166,6 +193,8 @@ export function createGameLifecycle(options: GameLifecycleOptions) {
       });
     },
     message(message: GameMessage) {
+      // The disguise is page chrome, not an analytics event.
+      if (message.type === "disguise") return;
       if (message.type === "achievement") {
         // Only during a round, once per key for this lifecycle.
         if (!playId || unlocked.has(message.key)) return;
