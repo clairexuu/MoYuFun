@@ -1,0 +1,28 @@
+{
+  "slug": "bug-hunt",
+  "name": "代码找不同",
+  "shortDescription": "左右两份代码，找出右边被悄悄改过的地方。",
+  "description": "看起来是 VS Code 里的一次代码对比，其实是找不同：右边的文件被改了几处，比如 === 变成 ==、< 变成 <=、少了一个 !、两个参数换了位置。点中改动就会像真正的 diff 一样标出来，点错扣 3 秒。一局的时间用完之前，通过的轮数越多越好；剩下的时间带进下一轮，文件越来越长，改动越来越隐蔽。按 Esc 一键切回普通的对比视图。",
+  "tags": ["益智", "找不同", "单人"],
+  "controls": [
+    { "input": "鼠标 / 触摸", "action": "点击你认为被改过的代码（左右都可以）" },
+    { "input": "滚轮 / 拖动 / 方向键", "action": "同时滚动两侧代码" },
+    { "input": "Tab", "action": "提示一处改动（扣 10 秒）" },
+    { "input": "Esc", "action": "老板键：切回普通对比视图并暂停" },
+    { "input": "M", "action": "开启或关闭声音（默认关闭）" }
+  ],
+  "cover": { "symbol": "差", "eyebrow": "SPOT THE DIFF", "accent": "#007acc", "accentSecondary": "#89d185" },
+  "sortOrder": 25,
+  "achievements": [
+    { "key": "quick_eye", "name": "眼疾手快", "description": "2 秒内连续找到两处改动。", "symbol": "快" },
+    { "key": "perfect", "name": "零误报", "description": "第 3 轮起，一轮里不点错、不用提示。", "symbol": "准" },
+    { "key": "level_5", "name": "代码审查", "description": "一局通过 5 轮。", "symbol": "审" },
+    { "key": "finds_30", "name": "火眼金睛", "description": "一局找到 30 处改动。", "symbol": "眼" },
+    { "key": "level_10", "name": "首席审查官", "description": "一局通过 10 轮。", "symbol": "首" }
+  ],
+  "stats": [
+    { "key": "rounds", "name": "对局", "maxPerRound": 1 },
+    { "key": "levels", "name": "通过轮数", "maxPerRound": 500 },
+    { "key": "finds", "name": "找到改动", "maxPerRound": 5000 }
+  ]
+}

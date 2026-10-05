@@ -1,0 +1,1519 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>report.service.ts (工作树) ↔ report.service.ts - moyufun-admin - Visual Studio Code</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #1e1e1e;
+    user-select: none; -webkit-user-select: none; }
+  #game { position: absolute; inset: 0; display: block; touch-action: none; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<!-- 语料：24 段手写 TS 代码，以 %% 行分隔。只用 ASCII，每行不超过 64 字符（测试会检查）。 -->
+<script type="text/plain" id="corpus">
+export function groupBy<T, K extends string>(
+  items: T[],
+  keyOf: (item: T) => K,
+): Record<K, T[]> {
+  const groups = {} as Record<K, T[]>;
+  for (const item of items) {
+    const key = keyOf(item);
+    if (groups[key] === undefined) {
+      groups[key] = [];
+    }
+    groups[key].push(item);
+  }
+  return groups;
+}
+
+export function countBy<T>(items: T[], keyOf: (x: T) => string) {
+  const counts: Record<string, number> = {};
+  for (const item of items) {
+    const key = keyOf(item);
+    counts[key] = (counts[key] ?? 0) + 1;
+  }
+  return counts;
+}
+%%
+export function debounce<A extends unknown[]>(
+  fn: (...args: A) => void,
+  waitMs: number,
+  options: { leading?: boolean } = {},
+) {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let lastCall = 0;
+
+  function debounced(...args: A) {
+    const now = Date.now();
+    const isFirst = timer === null;
+    if (timer !== null) {
+      clearTimeout(timer);
+    }
+    if (options.leading && isFirst && now - lastCall > waitMs) {
+      fn(...args);
+    }
+    lastCall = now;
+    timer = setTimeout(() => {
+      timer = null;
+      if (!options.leading) fn(...args);
+    }, waitMs);
+  }
+
+  debounced.cancel = () => {
+    if (timer) clearTimeout(timer);
+    timer = null;
+  };
+  return debounced;
+}
+%%
+export async function retry<T>(
+  task: (attempt: number) => Promise<T>,
+  { retries = 3, baseMs = 200, maxMs = 5000 } = {},
+): Promise<T> {
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await task(attempt);
+    } catch (err) {
+      lastError = err;
+      if (attempt === retries) break;
+      const jitter = Math.random() * baseMs;
+      const delay = Math.min(maxMs, baseMs * 2 ** attempt);
+      await sleep(delay + jitter);
+    }
+  }
+  throw lastError;
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export function isRetryable(status: number) {
+  return status === 429 || (status >= 500 && status !== 501);
+}
+%%
+const UNITS = ['B', 'KB', 'MB', 'GB', 'TB'];
+
+export function formatBytes(bytes: number, decimals = 1) {
+  if (!Number.isFinite(bytes) || bytes < 0) {
+    return '-';
+  }
+  if (bytes === 0) return '0 B';
+  const base = 1024;
+  const exp = Math.min(
+    Math.floor(Math.log(bytes) / Math.log(base)),
+    UNITS.length - 1,
+  );
+  const value = bytes / base ** exp;
+  const fixed = exp === 0 ? 0 : decimals;
+  return `${value.toFixed(fixed)} ${UNITS[exp]}`;
+}
+
+export function parseBytes(text: string): number | null {
+  const match = /^([\d.]+)\s*([KMGT]?B)$/i.exec(text.trim());
+  if (!match) return null;
+  const exp = UNITS.indexOf(match[2].toUpperCase());
+  if (exp < 0) return null;
+  return Math.round(parseFloat(match[1]) * 1024 ** exp);
+}
+%%
+const SEPARATORS = /[\s_.]+/g;
+
+export function slugify(input: string, maxLength = 60): string {
+  const base = input
+    .normalize('NFKD')
+    .replace(SEPARATORS, '-')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  if (base.length <= maxLength) {
+    return base;
+  }
+  const cut = base.slice(0, maxLength);
+  const lastDash = cut.lastIndexOf('-');
+  return lastDash > 20 ? cut.slice(0, lastDash) : cut;
+}
+
+export function uniqueSlug(title: string, taken: Set<string>) {
+  const base = slugify(title);
+  let slug = base;
+  let n = 2;
+  while (taken.has(slug)) {
+    slug = `${base}-${n}`;
+    n += 1;
+  }
+  taken.add(slug);
+  return slug;
+}
+%%
+export function parseQuery(search: string) {
+  const result: Record<string, string | string[]> = {};
+  const query = search.startsWith('?') ? search.slice(1) : search;
+  if (query.length === 0) return result;
+  for (const part of query.split('&')) {
+    if (!part) continue;
+    const eq = part.indexOf('=');
+    const rawKey = eq === -1 ? part : part.slice(0, eq);
+    const rawVal = eq === -1 ? '' : part.slice(eq + 1);
+    const key = decodeURIComponent(rawKey.replace(/\+/g, ' '));
+    const value = decodeURIComponent(rawVal.replace(/\+/g, ' '));
+    const prev = result[key];
+    if (prev === undefined) {
+      result[key] = value;
+    } else if (Array.isArray(prev)) {
+      prev.push(value);
+    } else {
+      result[key] = [prev, value];
+    }
+  }
+  return result;
+}
+
+export function toQuery(params: Record<string, string | number>) {
+  return Object.keys(params)
+    .filter((key) => params[key] !== '')
+    .map((key) => `${key}=${encodeURIComponent(params[key])}`)
+    .join('&');
+}
+%%
+export function useDebouncedValue<T>(value: T, delayMs = 300) {
+  const [debounced, setDebounced] = useState(value);
+  const first = useRef(true);
+
+  useEffect(() => {
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    const id = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(id);
+  }, [value, delayMs]);
+
+  return debounced;
+}
+
+export function useThrottle<T>(value: T, intervalMs = 500) {
+  const [shown, setShown] = useState(value);
+  const lastRun = useRef(Date.now());
+
+  useEffect(() => {
+    const elapsed = Date.now() - lastRun.current;
+    const wait = Math.max(0, intervalMs - elapsed);
+    const id = setTimeout(() => {
+      lastRun.current = Date.now();
+      setShown(value);
+    }, wait);
+    return () => clearTimeout(id);
+  }, [value, intervalMs]);
+
+  return shown;
+}
+%%
+export function useLocalStorage<T>(key: string, initial: T) {
+  const [value, setValue] = useState<T>(() => {
+    if (typeof window === 'undefined') return initial;
+    try {
+      const raw = window.localStorage.getItem(key);
+      return raw !== null ? (JSON.parse(raw) as T) : initial;
+    } catch {
+      return initial;
+    }
+  });
+
+  const update = useCallback(
+    (next: T | ((prev: T) => T)) => {
+      setValue((prev) => {
+        const resolved =
+          next instanceof Function ? next(prev) : next;
+        try {
+          const json = JSON.stringify(resolved);
+          window.localStorage.setItem(key, json);
+        } catch {
+          // quota exceeded or private mode: keep it in memory
+        }
+        return resolved;
+      });
+    },
+    [key],
+  );
+
+  return [value, update] as const;
+}
+%%
+export function usePagination(total: number, pageSize = 20) {
+  const [page, setPage] = useState(1);
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+
+  useEffect(() => {
+    if (page > pageCount) setPage(pageCount);
+  }, [page, pageCount]);
+
+  const range = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    const end = Math.min(start + pageSize, total);
+    return { start, end };
+  }, [page, pageSize, total]);
+
+  const pages = useMemo(() => {
+    const out: number[] = [];
+    const from = Math.max(1, page - 2);
+    const to = Math.min(pageCount, page + 2);
+    for (let p = from; p <= to; p++) out.push(p);
+    return out;
+  }, [page, pageCount]);
+
+  return {
+    page,
+    pageCount,
+    range,
+    pages,
+    hasPrev: page > 1,
+    hasNext: page < pageCount,
+    next: () => setPage((p) => Math.min(p + 1, pageCount)),
+    prev: () => setPage((p) => Math.max(p - 1, 1)),
+  };
+}
+%%
+export function useInterval(
+  callback: () => void,
+  delay: number | null,
+) {
+  const saved = useRef(callback);
+
+  useLayoutEffect(() => {
+    saved.current = callback;
+  }, [callback]);
+
+  useEffect(() => {
+    if (delay === null || delay < 0) return;
+    const id = setInterval(() => saved.current(), delay);
+    return () => clearInterval(id);
+  }, [delay]);
+}
+
+export function useCountdown(seconds: number, running: boolean) {
+  const [left, setLeft] = useState(seconds);
+
+  useEffect(() => setLeft(seconds), [seconds]);
+
+  useInterval(
+    () => setLeft((s) => (s > 0 ? s - 1 : 0)),
+    running && left > 0 ? 1000 : null,
+  );
+
+  const minutes = Math.floor(left / 60);
+  const rest = String(left % 60).padStart(2, '0');
+  return { left, label: `${minutes}:${rest}`, done: left === 0 };
+}
+%%
+type FetchState<T> =
+  | { status: 'idle' | 'loading' }
+  | { status: 'success'; data: T }
+  | { status: 'error'; error: Error };
+
+export function useFetchJson<T>(url: string | null) {
+  const [state, setState] = useState<FetchState<T>>({
+    status: 'idle',
+  });
+
+  useEffect(() => {
+    if (!url) return;
+    const controller = new AbortController();
+    setState({ status: 'loading' });
+    fetch(url, { signal: controller.signal })
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json() as Promise<T>;
+      })
+      .then((data) => setState({ status: 'success', data }))
+      .catch((error) => {
+        if (controller.signal.aborted) return;
+        setState({ status: 'error', error });
+      });
+    return () => controller.abort();
+  }, [url]);
+
+  return state;
+}
+%%
+type Filter = {
+  status?: string[];
+  minTotal?: number;
+  since?: Date;
+  search?: string;
+};
+
+export function buildWhere(filter: Filter) {
+  const clauses: string[] = [];
+  const params: unknown[] = [];
+  const add = (sql: string, value: unknown) => {
+    params.push(value);
+    clauses.push(sql.replace('?', `$${params.length}`));
+  };
+
+  if (filter.status && filter.status.length > 0) {
+    add('status = any(?)', filter.status);
+  }
+  if (filter.minTotal !== undefined) {
+    add('total >= ?', filter.minTotal);
+  }
+  if (filter.since) {
+    add('created_at >= ?', filter.since.toISOString());
+  }
+  if (filter.search?.trim()) {
+    add('customer_name ilike ?', `%${filter.search.trim()}%`);
+  }
+  if (clauses.length === 0) return { where: '', params };
+  return { where: `where ${clauses.join(' and ')}`, params };
+}
+%%
+export function buildInsert(
+  table: string,
+  rows: Record<string, unknown>[],
+) {
+  if (rows.length === 0) {
+    throw new Error('buildInsert: no rows');
+  }
+  const columns = Object.keys(rows[0]).sort();
+  const params: unknown[] = [];
+  const tuples = rows.map((row, r) => {
+    const missing = columns.filter((c) => !(c in row));
+    if (missing.length > 0) {
+      throw new Error(`row ${r} lacks ${missing.join(', ')}`);
+    }
+    const slots = columns.map((c) => {
+      params.push(row[c] ?? null);
+      return `$${params.length}`;
+    });
+    return `(${slots.join(', ')})`;
+  });
+  const quoted = columns.map((c) => `"${c}"`).join(', ');
+  const values = tuples.join(', ');
+  return {
+    text: `insert into ${table} (${quoted}) values ${values}`,
+    params,
+  };
+}
+%%
+const SORTABLE = new Set(['created_at', 'total', 'customer']);
+
+export function buildPagedQuery(opts: {
+  table: string;
+  sort?: string;
+  desc?: boolean;
+  page?: number;
+  pageSize?: number;
+}) {
+  const wanted = opts.sort ?? '';
+  const sort = SORTABLE.has(wanted) ? wanted : 'created_at';
+  const direction = opts.desc === false ? 'asc' : 'desc';
+  const size = opts.pageSize ?? 25;
+  const pageSize = Math.min(Math.max(size, 1), 100);
+  const page = Math.max(opts.page ?? 1, 1);
+  const offset = (page - 1) * pageSize;
+  const lines = [
+    `select * from ${opts.table}`,
+    `order by ${sort} ${direction}, id ${direction}`,
+    `limit ${pageSize + 1} offset ${offset}`,
+  ];
+  return { text: lines.join('\n'), pageSize, offset };
+}
+
+export function splitPage<T>(rows: T[], pageSize: number) {
+  const hasMore = rows.length > pageSize;
+  return {
+    items: hasMore ? rows.slice(0, pageSize) : rows,
+    hasMore,
+  };
+}
+%%
+export function buildUpsert(
+  table: string,
+  row: Record<string, unknown>,
+  conflictKeys: string[],
+) {
+  const columns = Object.keys(row);
+  for (const key of conflictKeys) {
+    if (!columns.includes(key)) {
+      throw new Error(`conflict key ${key} is not in row`);
+    }
+  }
+  const slots = columns.map((_, i) => `$${i + 1}`);
+  const updates = columns
+    .filter((c) => !conflictKeys.includes(c))
+    .map((c) => `${c} = excluded.${c}`);
+  const action = updates.length
+    ? `do update set ${updates.join(', ')}`
+    : 'do nothing';
+  const text = [
+    `insert into ${table} (${columns.join(', ')})`,
+    `values (${slots.join(', ')})`,
+    `on conflict (${conflictKeys.join(', ')}) ${action}`,
+    'returning *',
+  ].join(' ');
+  return { text, values: columns.map((c) => row[c]) };
+}
+%%
+const HOLIDAYS = new Set([
+  '2026-01-01',
+  '2026-10-01',
+  '2026-10-02',
+]);
+
+function isoDay(d: Date) {
+  return d.toISOString().slice(0, 10);
+}
+
+export function isBusinessDay(d: Date) {
+  const day = d.getDay();
+  return day !== 0 && day !== 6 && !HOLIDAYS.has(isoDay(d));
+}
+
+export function addBusinessDays(start: Date, days: number) {
+  const result = new Date(start.getTime());
+  const step = days < 0 ? -1 : 1;
+  let left = Math.abs(days);
+  while (left > 0) {
+    result.setDate(result.getDate() + step);
+    if (isBusinessDay(result)) {
+      left -= 1;
+    }
+  }
+  return result;
+}
+
+export function businessDaysBetween(a: Date, b: Date) {
+  let count = 0;
+  const cursor = new Date(a.getTime());
+  while (cursor < b) {
+    if (isBusinessDay(cursor)) count++;
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return count;
+}
+%%
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+export function startOfDay(d: Date) {
+  const copy = new Date(d);
+  copy.setHours(0, 0, 0, 0);
+  return copy;
+}
+
+export function daysBetween(from: Date, to: Date) {
+  const a = startOfDay(from).getTime();
+  const b = startOfDay(to).getTime();
+  return Math.round((b - a) / MS_PER_DAY);
+}
+
+export function ageInYears(birth: Date, today = new Date()) {
+  let age = today.getFullYear() - birth.getFullYear();
+  const beforeBirthday =
+    today.getMonth() < birth.getMonth() ||
+    (today.getMonth() === birth.getMonth() &&
+      today.getDate() < birth.getDate());
+  if (beforeBirthday) age -= 1;
+  return age;
+}
+
+export function isSameMonth(a: Date, b: Date) {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth()
+  );
+}
+%%
+export function isoWeek(date: Date) {
+  const d = new Date(
+    Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()),
+  );
+  const day = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  const diff = d.getTime() - yearStart.getTime();
+  const week = Math.ceil((diff / 86400000 + 1) / 7);
+  return { year: d.getUTCFullYear(), week };
+}
+
+export function startOfWeek(date: Date, weekStartsOn = 1) {
+  const d = new Date(date);
+  const day = d.getDay();
+  const diff = (day - weekStartsOn + 7) % 7;
+  d.setDate(d.getDate() - diff);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+export function weekLabel(date: Date) {
+  const { year, week } = isoWeek(date);
+  return `${year}-W${String(week).padStart(2, '0')}`;
+}
+%%
+export function formatDuration(ms: number, short = false) {
+  if (ms < 0) return '-' + formatDuration(-ms, short);
+  const totalSeconds = Math.floor(ms / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (short) {
+    const mm = String(minutes).padStart(2, '0');
+    const ss = String(seconds).padStart(2, '0');
+    if (hours > 0) return `${hours}:${mm}:${ss}`;
+    return `${minutes}:${ss}`;
+  }
+  const parts: string[] = [];
+  if (hours > 0) parts.push(`${hours}h`);
+  if (minutes > 0) parts.push(`${minutes}m`);
+  if (seconds > 0 || parts.length === 0) {
+    parts.push(`${seconds}s`);
+  }
+  return parts.join(' ');
+}
+
+export function parseDuration(text: string) {
+  let total = 0;
+  for (const [, n, unit] of text.matchAll(/(\d+)\s*([hms])/g)) {
+    const factor = unit === 'h' ? 3600 : unit === 'm' ? 60 : 1;
+    total += Number(n) * factor * 1000;
+  }
+  return total;
+}
+%%
+export function quarterOf(date: Date) {
+  return Math.floor(date.getMonth() / 3) + 1;
+}
+
+export function quarterRange(year: number, quarter: number) {
+  if (quarter < 1 || quarter > 4) {
+    throw new RangeError(`invalid quarter ${quarter}`);
+  }
+  const firstMonth = (quarter - 1) * 3;
+  const start = new Date(year, firstMonth, 1);
+  const end = new Date(year, firstMonth + 3, 0, 23, 59, 59);
+  return { start, end };
+}
+
+export function fiscalYear(date: Date, startMonth = 4) {
+  const month = date.getMonth() + 1;
+  return month >= startMonth
+    ? date.getFullYear()
+    : date.getFullYear() - 1;
+}
+
+export function monthsBetween(from: Date, to: Date) {
+  const years = to.getFullYear() - from.getFullYear();
+  const months = to.getMonth() - from.getMonth();
+  const partial = to.getDate() < from.getDate() ? 1 : 0;
+  return years * 12 + months - partial;
+}
+%%
+type Order = {
+  id: string;
+  region: string;
+  amount: number;
+  status: 'paid' | 'refunded' | 'pending';
+  paidAt: Date | null;
+};
+
+export function summarizeOrders(orders: Order[], area = '') {
+  const rows = orders.filter(
+    (o) => o.status === 'paid' && (!area || o.region === area),
+  );
+  let total = 0;
+  let largest: Order | null = null;
+  const byMonth = new Map<string, number>();
+  for (const order of rows) {
+    total += order.amount;
+    if (!largest || order.amount > largest.amount) {
+      largest = order;
+    }
+    const month = order.paidAt?.toISOString().slice(0, 7) ?? '-';
+    byMonth.set(month, (byMonth.get(month) ?? 0) + order.amount);
+  }
+  const average = rows.length > 0 ? total / rows.length : 0;
+  return {
+    count: rows.length,
+    total: Math.round(total * 100) / 100,
+    average: Math.round(average * 100) / 100,
+    largestId: largest?.id ?? null,
+    byMonth: Object.fromEntries(byMonth),
+  };
+}
+%%
+type LineItem = { sku: string; qty: number; unitPrice: number };
+type Coupon = { kind: 'percent' | 'fixed'; value: number };
+
+export function invoiceTotal(
+  items: LineItem[],
+  coupon: Coupon | null,
+  taxRate = 0.13,
+) {
+  const subtotal = items.reduce(
+    (sum, item) => sum + item.qty * item.unitPrice,
+    0,
+  );
+  let discount = 0;
+  if (coupon !== null) {
+    discount =
+      coupon.kind === 'percent'
+        ? (subtotal * coupon.value) / 100
+        : coupon.value;
+  }
+  discount = Math.min(discount, subtotal);
+  const taxable = subtotal - discount;
+  const tax = Math.round(taxable * taxRate * 100) / 100;
+  return {
+    subtotal,
+    discount,
+    tax,
+    total: taxable + tax,
+    freeShipping: taxable >= 99,
+  };
+}
+%%
+export class LruCache<K, V> {
+  private map = new Map<K, V>();
+
+  constructor(private readonly capacity = 100) {
+    if (capacity < 1) {
+      throw new RangeError('capacity must be at least 1');
+    }
+  }
+
+  get(key: K): V | undefined {
+    if (!this.map.has(key)) return undefined;
+    const value = this.map.get(key) as V;
+    this.map.delete(key);
+    this.map.set(key, value);
+    return value;
+  }
+
+  set(key: K, value: V) {
+    if (this.map.has(key)) {
+      this.map.delete(key);
+    } else if (this.map.size >= this.capacity) {
+      const oldest = this.map.keys().next().value as K;
+      this.map.delete(oldest);
+    }
+    this.map.set(key, value);
+    return this;
+  }
+
+  get size() {
+    return this.map.size;
+  }
+}
+%%
+export function lowerBound<T>(
+  items: readonly T[],
+  target: T,
+  compare: (a: T, b: T) => number,
+) {
+  let lo = 0;
+  let hi = items.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (compare(items[mid], target) < 0) {
+      lo = mid + 1;
+    } else {
+      hi = mid;
+    }
+  }
+  return lo;
+}
+
+export function sortedInsert<T>(
+  items: T[],
+  value: T,
+  compare: (a: T, b: T) => number,
+) {
+  const index = lowerBound(items, value, compare);
+  items.splice(index, 0, value);
+  return index;
+}
+
+export function includesSorted(xs: number[], x: number) {
+  const i = lowerBound(xs, x, (a, b) => a - b);
+  return i < xs.length && xs[i] === x;
+}
+</script>
+<script>
+'use strict';
+/* 代码找不同：VS Code 对比视图里的找不同。设计文档：docs/games/bug-hunt.md */
+
+// ---------- 常量 ----------
+const APP = 'vscode';
+const TITLE = 'report.service.ts (工作树) ↔ report.service.ts - moyufun-admin - Visual Studio Code';
+const WRONG_PENALTY = 3, HINT_PENALTY = 10, CLEAR_PAUSE = 1.2, QUICK_GAP = 2, RESTART_DELAY = 1;
+const BOSS_SEED = 20261005;
+const BEST_KEY = 'moyufun:bug-hunt:best';
+const SANS = '"PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif';
+const MONO = 'Menlo, Consolas, "SF Mono", "Courier New", monospace';
+
+// ---------- MoYuFun SDK v1 ----------
+const MOYUFUN_PARENT_ORIGIN = location.hostname === 'localhost'
+  ? 'http://localhost:3000'
+  : 'https://www.moyufuns.com';
+function emitMoYuFunEvent(type) {
+  if (window.parent === window) return;
+  window.parent.postMessage({ source: 'moyufun-game', version: 1, type }, MOYUFUN_PARENT_ORIGIN);
+}
+function emitMoYuFunAchievement(key) {
+  if (window.parent === window) return;
+  window.parent.postMessage({ source: 'moyufun-game', version: 1, type: 'achievement', key }, MOYUFUN_PARENT_ORIGIN);
+}
+// 战绩：每局结算时发送一次，在成就之后、end 之前；键和上限在 game.json 的 stats 中声明。
+function emitMoYuFunStats(stats) {
+  if (window.parent === window) return;
+  window.parent.postMessage({ source: 'moyufun-game', version: 1, type: 'stats', stats }, MOYUFUN_PARENT_ORIGIN);
+}
+// 伪装：每次 ready 之后发送，告诉主站用哪种图标和标签页标题。
+function emitMoYuFunDisguise(app, title) {
+  if (window.parent === window) return;
+  window.parent.postMessage({ source: 'moyufun-game', version: 1, type: 'disguise', app, title }, MOYUFUN_PARENT_ORIGIN);
+}
+// 成就：每局每个 key 最多发送一次；必须在 stats、end 之前发送（主站在 end 后忽略成就）。
+let roundAchievements = new Set();
+function unlockAchievement(key) {
+  if (roundAchievements.has(key)) return;
+  roundAchievements.add(key);
+  emitMoYuFunAchievement(key);
+}
+
+// ---------- 音频（默认关闭，M 开关） ----------
+let AC = null, master = null, muted = true;
+function ensureAudio() {
+  if (muted) return;
+  if (!AC) {
+    try {
+      AC = new (window.AudioContext || window.webkitAudioContext)();
+      master = AC.createGain(); master.gain.value = 0.15; master.connect(AC.destination);
+    } catch (err) { AC = null; }
+  }
+  if (AC && AC.state === 'suspended') AC.resume();
+}
+function tone(f0, f1, dur, type, vol) {
+  if (!AC || muted) return;
+  const t = AC.currentTime, o = AC.createOscillator(), g = AC.createGain();
+  o.type = type || 'sine';
+  o.frequency.setValueAtTime(Math.max(1, f0), t);
+  o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t + dur);
+  g.gain.setValueAtTime(vol || 1, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  o.connect(g); g.connect(master); o.start(t); o.stop(t + dur + 0.03);
+}
+
+// ---------- 随机数（可设种子） ----------
+function mulberry32(a) {
+  return function () {
+    a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+let rng = mulberry32(1);
+function setSeed(s) { rng = mulberry32(s >>> 0); }
+function shuffle(arr, rnd) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+const pickOne = (arr, rnd) => arr[Math.floor(rnd() * arr.length)];
+
+// ---------- 语料与分词（纯函数） ----------
+const CORPUS = document.getElementById('corpus').textContent.split(/^%%$/m)
+  .map(block => block.replace(/^\n+|\s+$/g, '').split('\n'));
+const TOKEN_RE = /\/\/.*|'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|`(?:\\.|[^`\\])*`|\d[\d.]*|[A-Za-z_$][\w$]*|\s+|===|!==|\.\.\.|=>|\?\?|\?\.|&&|\|\||<=|>=|==|!=|\+=|-=|\+\+|--|\*\*|[^\s\w]/g;
+function kindOf(t) {
+  const c = t[0];
+  if (t.startsWith('//')) return 'com';
+  if (c === "'" || c === '"' || c === '`') return 'str';
+  if (c >= '0' && c <= '9') return 'num';
+  if (/[A-Za-z_$]/.test(c)) return 'id';
+  if (/\s/.test(c)) return 'ws';
+  return 'op';
+}
+function tokenize(line) {
+  const out = [];
+  let col = 0;
+  for (const t of line.match(TOKEN_RE) || []) { out.push({ t, k: kindOf(t), c: col }); col += t.length; }
+  return out;
+}
+
+// Dark+ 配色 + 括号对着色
+const CTRL = new Set('if else for while do return break continue switch case default throw try catch finally await import export from'.split(' '));
+const STORE = new Set('const let var function async class extends new typeof instanceof in of as void delete this true false null undefined type interface private readonly public static keyof'.split(' '));
+const BRACKETS = ['#ffd700', '#da70d6', '#179fff'];
+function colorOf(tk, i) {
+  const { t, k } = tk[i], next = tk[i + 1];
+  if (k === 'com') return '#6a9955';
+  if (k === 'str') return '#ce9178';
+  if (k === 'num') return '#b5cea8';
+  if (k !== 'id') return '#d4d4d4';
+  if (CTRL.has(t)) return '#c586c0';
+  if (STORE.has(t)) return '#569cd6';
+  if (/^[A-Z][A-Z0-9_]+$/.test(t)) return '#4fc1ff';
+  if (/^[A-Z]/.test(t)) return '#4ec9b0';
+  if (next && (next.t === '(' || (next.t === '<' && /^[a-z]/.test(t)))) return '#dcdcaa';
+  return '#9cdcfe';
+}
+function paint(lines) {
+  let depth = 0;
+  return lines.map(line => {
+    const tk = tokenize(line);
+    tk.forEach((tok, i) => {
+      if ('([{'.includes(tok.t) && tok.k === 'op') tok.color = BRACKETS[depth++ % 3];
+      else if (')]}'.includes(tok.t) && tok.k === 'op') { depth = Math.max(0, depth - 1); tok.color = BRACKETS[depth % 3]; }
+      else tok.color = colorOf(tk, i);
+    });
+    return tk;
+  });
+}
+
+// ---------- 变异算子：每个只改一个记号（或一小段相邻记号） ----------
+const SWAPS = {
+  min: ['max', 1], max: ['min', 1], floor: ['ceil', 1], ceil: ['floor', 1],
+  some: ['every', 1], every: ['some', 1], toUpperCase: ['toLowerCase', 1], toLowerCase: ['toUpperCase', 1],
+  startsWith: ['endsWith', 1], endsWith: ['startsWith', 1], keys: ['values', 1], values: ['keys', 1],
+  push: ['unshift', 2], filter: ['find', 2], has: ['get', 2], round: ['trunc', 2], getMonth: ['getHours', 2],
+  getDate: ['getDay', 3], getDay: ['getDate', 3], getUTCDate: ['getUTCDay', 3], getUTCDay: ['getUTCDate', 3],
+  slice: ['splice', 3], splice: ['slice', 3],
+};
+const FLIPS = {
+  eq: { '===': '==', '==': '===', '!==': '!=', '!=': '!==' },
+  rel: { '<': '<=', '<=': '<', '>': '>=', '>=': '>' },
+  logic: { '&&': '||', '||': '&&', '??': '||' },
+  arith: { '+': '-', '-': '+', '*': '/', '/': '*', '+=': '-=', '-=': '+=' },
+};
+const STR_LETTERS = 'aeuskdt';
+const spaced = (tk, i) => tk[i - 1]?.k === 'ws' && (!tk[i + 1] || tk[i + 1].k === 'ws');
+const sigBefore = (tk, i) => { for (let j = i - 1; j >= 0; j--) if (tk[j].k !== 'ws') return tk[j]; return null; };
+const plainId = t => !CTRL.has(t) && !STORE.has(t);
+const simpleArg = x => x && (x.k === 'num' || x.k === 'str' || (x.k === 'id' && !CTRL.has(x.t)));
+const rep = (i, j, text, tier) => ({ i, j, text, tier });
+// 每个算子：(tokens, i, idCount, rnd) → { i, j, text, tier } 或 undefined；替换 tokens[i..j)。
+const OPS = {
+  bool(tk, i) { const t = tk[i].t; if (t === 'true' || t === 'false') return rep(i, i + 1, t === 'true' ? 'false' : 'true', 1); },
+  nullish(tk, i) { const t = tk[i].t; if (t === 'null' || t === 'undefined') return rep(i, i + 1, t === 'null' ? 'undefined' : 'null', 1); },
+  decl(tk, i) {
+    const t = tk[i].t;
+    if ((t === 'const' || t === 'let') && sigBefore(tk, i)?.t !== 'as') return rep(i, i + 1, t === 'const' ? 'let' : 'const', 1);
+  },
+  num(tk, i) {
+    const t = tk[i].t;
+    if (tk[i].k !== 'num' || !/\d$/.test(t)) return;
+    const d = +t[t.length - 1];
+    return rep(i, i + 1, t.slice(0, -1) + (d === 9 ? 8 : d + 1), t.length >= 4 ? 2 : 1);
+  },
+  method(tk, i) {
+    const dot = tk[i - 1]?.t;
+    if (tk[i].k !== 'id' || !Object.hasOwn(SWAPS, tk[i].t) || (dot !== '.' && dot !== '?.')) return;
+    const [to, tier] = SWAPS[tk[i].t];
+    return rep(i, i + 1, to, tier);
+  },
+  eq(tk, i) { const to = tk[i].k === 'op' && FLIPS.eq[tk[i].t]; if (to && spaced(tk, i)) return rep(i, i + 1, to, 2); },
+  rel(tk, i) { const to = tk[i].k === 'op' && FLIPS.rel[tk[i].t]; if (to && spaced(tk, i)) return rep(i, i + 1, to, 2); },
+  logic(tk, i) { const to = tk[i].k === 'op' && FLIPS.logic[tk[i].t]; if (to && spaced(tk, i)) return rep(i, i + 1, to, 2); },
+  arith(tk, i) {
+    const t = tk[i].t;
+    if (t === '++' || t === '--') return rep(i, i + 1, t === '++' ? '--' : '++', 2);
+    const to = FLIPS.arith[t];
+    if (to && tk[i].k === 'op' && spaced(tk, i)) return rep(i, i + 1, to, 2);
+  },
+  rename(tk, i, idCount) {
+    const t = tk[i].t, before = tk[i - 1]?.t;
+    if (tk[i].k !== 'id' || !/^[a-z][A-Za-z0-9]{2,}$/.test(t) || !plainId(t) || before === '.' || before === '?.') return;
+    if ((idCount[t] || 0) < 2) return;
+    return rep(i, i + 1, t.length > 3 && t.endsWith('s') ? t.slice(0, -1) : t + 's', 2);
+  },
+  not(tk, i) {
+    const a = tk[i], b = tk[i + 1];
+    if (a.t === '!' && b && (b.k === 'id' || b.t === '(')) return rep(i, i + 2, b.t, 3);
+    if (a.k === 'id' && plainId(a.t) && tk[i - 1]?.t === '(' && sigBefore(tk, i - 1)?.t === 'if') return rep(i, i + 1, '!' + a.t, 3);
+  },
+  args(tk, i) {
+    if (tk[i].t !== '(') return;
+    const [A, c, s, B, z] = tk.slice(i + 1, i + 6);
+    if (!z || z.t !== ')' || c.t !== ',' || s.t !== ' ' || !simpleArg(A) || !simpleArg(B) || A.t === B.t) return;
+    return rep(i + 1, i + 5, B.t + ', ' + A.t, 3);
+  },
+  str(tk, i, idCount, rnd) {
+    const s = tk[i].t;
+    if (tk[i].k !== 'str') return;
+    const spots = [];
+    let inExpr = false;
+    for (let p = 1; p < s.length - 1; p++) {
+      if (s[p] === '$' && s[p + 1] === '{') inExpr = true;
+      if (inExpr) { if (s[p] === '}') inExpr = false; continue; }
+      if (/[a-z]/.test(s[p]) && s[p - 1] !== '\\') spots.push(p);
+    }
+    if (spots.length < 3) return;
+    const p = pickOne(spots, rnd), ch = pickOne([...STR_LETTERS].filter(x => x !== s[p]), rnd);
+    return rep(i, i + 1, s.slice(0, p) + ch + s.slice(p + 1), 3);
+  },
+  chain(tk, i) {
+    const t = tk[i].t;
+    if (t === '?.') return rep(i, i + 1, '.', 3);
+    if (t === '.' && tk[i - 1]?.k === 'id' && tk[i + 1]?.k === 'id') return rep(i, i + 1, '?.', 3);
+  },
+};
+
+// ---------- 关卡（纯函数，同 seed 同 n 结果相同） ----------
+const diffCount = n => Math.min(9, 2 + Math.ceil(n * 0.75));
+const funcCount = n => n <= 2 ? 1 : n <= 5 ? 2 : 3;
+const tiersFor = n => n === 1 ? [1] : n === 2 ? [1, 2] : n <= 4 ? [1, 2, 3] : [2, 3];
+const levelTime = n => Math.round(diffCount(n) * Math.max(7, 12 - (n - 1) * 0.5));
+
+function generateLevel(n, seed) {
+  const rnd = mulberry32((Math.imul(seed >>> 0, 2654435761) ^ Math.imul(n, 40503)) >>> 0);
+  const funcs = shuffle([...CORPUS.keys()], rnd).slice(0, funcCount(n));
+  const left = [];
+  funcs.forEach((k, x) => { if (x) left.push(''); left.push(...CORPUS[k]); });
+  const toks = left.map(tokenize);
+  const idCount = Object.create(null);
+  for (const tk of toks) tk.forEach((tok, i) => {
+    if (tok.k === 'id' && tk[i - 1]?.t !== '.') idCount[tok.t] = (idCount[tok.t] || 0) + 1;
+  });
+  const cands = [];
+  toks.forEach((tk, line) => tk.forEach((_, i) => {
+    for (const [op, f] of Object.entries(OPS)) {
+      const r = f(tk, i, idCount, rnd);
+      if (!r) continue;
+      const a = tk[r.i].c, b = tk[r.j - 1].c + tk[r.j - 1].t.length, from = left[line].slice(a, b);
+      if (from !== r.text) cands.push({ op, line, a, b, from, to: r.text, tier: r.tier });
+    }
+  }));
+  const want = diffCount(n), allowed = tiersFor(n);
+  let pool = cands.filter(c => allowed.includes(c.tier));
+  if (new Set(pool.map(c => c.line)).size < want) pool = cands;
+  // 先挑最少用过的算子，再挑它的一个位置；每行最多一处，所以改动不会重叠。
+  const diffs = [], usedLines = new Set(), usedOps = {};
+  while (diffs.length < want) {
+    const open = pool.filter(c => !usedLines.has(c.line));
+    if (!open.length) break;
+    const ops = [...new Set(open.map(c => c.op))];
+    const least = Math.min(...ops.map(o => usedOps[o] || 0));
+    const op = pickOne(ops.filter(o => (usedOps[o] || 0) === least), rnd);
+    const c = pickOne(open.filter(x => x.op === op), rnd);
+    usedLines.add(c.line); usedOps[op] = (usedOps[op] || 0) + 1;
+    diffs.push({ line: c.line, op, tier: c.tier, from: c.from, to: c.to, l: [c.a, c.b], r: [c.a, c.a + c.to.length], found: false, flash: 0 });
+  }
+  diffs.sort((x, y) => x.line - y.line);
+  const right = left.slice();
+  for (const d of diffs) right[d.line] = left[d.line].slice(0, d.l[0]) + d.to + left[d.line].slice(d.l[1]);
+  const maxLen = Math.max(...left.map(s => s.length), ...right.map(s => s.length));
+  return { n, seed, funcs, left, right, diffs, maxLen };
+}
+function makeView(lv) {
+  return { lv, pl: paint(lv.left), pr: paint(lv.right), byLine: new Map(lv.diffs.map(d => [d.line, d])) };
+}
+
+// ---------- 游戏状态 ----------
+let state = 'ready';            // ready | play | clear | over
+let boss = false, uiT = 0;
+let runSeed = 1, level = 0, liveView = null, clock = 0, gameT = 0, clearT = 0, overT = 0;
+let finds = 0, levelsCleared = 0, wrongs = 0, hints = 0, lastFindT = null, hintLine = -1, best = 0;
+let scroll = 0, caret = null;
+let fx = { wrong: [], hint: null, pen: 0, notice: null };
+let log = [];
+const bossView = makeView(generateLevel(1, BOSS_SEED));
+try { best = +localStorage.getItem(BEST_KEY) || 0; } catch (err) { best = 0; }
+
+function say(s, c) { log.push({ s, c: c || '#cccccc' }); if (log.length > 40) log.shift(); }
+
+function newRun(seed) {
+  runSeed = (seed ?? Math.floor(Math.random() * 4294967296)) >>> 0;
+  setSeed(runSeed);
+  roundAchievements = new Set();
+  state = 'ready'; level = 0; clock = 0; gameT = 0; finds = 0; levelsCleared = 0; overT = 0;
+  fx = { wrong: [], hint: null, pen: 0, notice: null }; caret = null; log = [];
+  loadLevel(1);
+}
+function loadLevel(n) {
+  level = n;
+  liveView = makeView(generateLevel(n, runSeed));
+  clock += levelTime(n);
+  wrongs = 0; hints = 0; lastFindT = null; hintLine = -1; scroll = 0;
+  const lv = liveView.lv;
+  say(`~/moyufun-admin main* $ git difftool HEAD~${n} -- src/services/report.service.ts`);
+  say(`比较 ${lv.left.length} 行，${lv.diffs.length} 处改动未标记，+${levelTime(n)}s`, '#9d9d9d');
+}
+function begin() {
+  if (state !== 'ready') return;
+  state = 'play';
+  emitMoYuFunEvent('start');
+}
+// 点击代码：pane 'l' | 'r'，line 行号（0 起），col 列（可带小数）。返回 'find' | 'wrong' | 'none'。
+function clickCode(pane, line, col) {
+  if (boss || (state !== 'ready' && state !== 'play')) return 'none';
+  const lv = liveView.lv, d = liveView.byLine.get(line);
+  if (d && !d.found) {
+    const [a, b] = pane === 'l' ? d.l : d.r;
+    if (col >= a - 0.5 && col < b + 0.5) { begin(); find(d); return 'find'; }
+  }
+  if (d && d.found) {
+    const [a, b] = pane === 'l' ? d.l : d.r;
+    if (col >= a - 0.5 && col < b + 0.5) return 'none';
+  }
+  const tk = (pane === 'l' ? liveView.pl : liveView.pr)[line];
+  if (!tk || line >= lv.left.length) return 'none';
+  const tok = tk.find(t => col >= t.c && col < t.c + t.t.length);
+  if (!tok || tok.k === 'ws') return 'none';
+  begin();
+  wrong(pane, line, tok);
+  return 'wrong';
+}
+function find(d) {
+  d.found = true; d.flash = 0.6;
+  finds++;
+  if (lastFindT !== null && gameT - lastFindT <= QUICK_GAP) unlockAchievement('quick_eye');
+  lastFindT = gameT;
+  if (finds >= 30) unlockAchievement('finds_30');
+  say(`✓ 第 ${d.line + 1} 行：${d.from}  →  ${d.to}`, '#89d185');
+  tone(880, 1320, 0.08, 'sine', 0.5);
+  if (liveView.lv.diffs.every(x => x.found)) clearLevel();
+}
+function wrong(pane, line, tok) {
+  clock -= WRONG_PENALTY; wrongs++;
+  fx.wrong.push({ pane, line, a: tok.c, b: tok.c + tok.t.length, t: 1 });
+  fx.pen = 0.9;
+  say(`✗ 第 ${line + 1} 行：${tok.t.length > 24 ? tok.t.slice(0, 24) + '…' : tok.t} 没有改动  −${WRONG_PENALTY}s`, '#f14c4c');
+  tone(220, 140, 0.14, 'square', 0.25);
+  if (clock <= 0) endRun();
+}
+function hint() {
+  if (boss || (state !== 'ready' && state !== 'play')) return false;
+  const open = liveView.lv.diffs.filter(d => !d.found);
+  if (!open.length) return false;
+  const d = open.find(x => x.line > hintLine) || open[0];
+  begin();
+  hintLine = d.line; hints++; clock -= HINT_PENALTY;
+  fx.hint = { d, t: 3 };
+  const L = layout(liveView);
+  if (d.line < scroll || d.line > scroll + L.visLines - 2) setScroll(d.line - Math.floor(L.visLines / 2));
+  say(`⚠ 第 ${d.line + 1} 行有改动  −${HINT_PENALTY}s`, '#cca700');
+  tone(520, 520, 0.1, 'triangle', 0.3);
+  if (clock <= 0) endRun();
+  return true;
+}
+function clearLevel() {
+  levelsCleared++;
+  if (level >= 3 && wrongs === 0 && hints === 0) unlockAchievement('perfect');
+  if (levelsCleared >= 5) unlockAchievement('level_5');
+  if (levelsCleared >= 10) unlockAchievement('level_10');
+  state = 'clear'; clearT = CLEAR_PAUSE;
+  say(`✓ 第 ${level} 轮比较完成，剩余 ${Math.ceil(clock)}s 带入下一轮`, '#89d185');
+  tone(660, 990, 0.12, 'sine', 0.5);
+}
+function endRun() {
+  if (state === 'over') return;
+  state = 'over'; clock = 0; overT = 0; fx.hint = null;
+  if (finds > best) { best = finds; try { localStorage.setItem(BEST_KEY, String(best)); } catch (err) { /* 存不了就算了 */ } }
+  emitMoYuFunStats({ rounds: 1, levels: Math.min(levelsCleared, 500), finds: Math.min(finds, 5000) });
+  emitMoYuFunEvent('end');
+  say(`■ 时间到：找到 ${finds} 处，通过 ${levelsCleared} 轮，最佳 ${best} 处`, '#cca700');
+  say('  点击编辑器或按 Enter 重新开始', '#9d9d9d');
+  tone(330, 165, 0.3, 'sine', 0.4);
+}
+function toggleBoss() { boss = !boss; drag = null; }
+function toggleSound() { muted = !muted; ensureAudio(); fx.notice = { s: muted ? '声音：关' : '声音：开', t: 1.5 }; }
+function setScroll(v) { scroll = Math.max(0, Math.min(layout(liveView).maxScroll, v)); }
+
+function update(dt) {
+  uiT += dt;
+  if (boss) return;
+  fx.wrong = fx.wrong.filter(w => (w.t -= dt) > 0);
+  if (fx.hint && (fx.hint.t -= dt) <= 0) fx.hint = null;
+  if (fx.notice && (fx.notice.t -= dt) <= 0) fx.notice = null;
+  fx.pen = Math.max(0, fx.pen - dt);
+  for (const d of liveView.lv.diffs) d.flash = Math.max(0, d.flash - dt);
+  if (state === 'play') {
+    clock -= dt; gameT += dt;
+    if (clock <= 0) endRun();
+  } else if (state === 'clear') {
+    clearT -= dt;
+    if (clearT <= 0) { state = 'play'; loadLevel(level + 1); }
+  } else if (state === 'over') overT += dt;
+}
+
+// ---------- 画布与布局 ----------
+const canvas = document.getElementById('game'), ctx = canvas.getContext('2d');
+const view = { w: 0, h: 0, dpr: 1 };
+let charRatio = 0.6;
+function measureRatio() {
+  ctx.font = `100px ${MONO}`;
+  const w = ctx.measureText('M').width;
+  if (w > 0) charRatio = w / 100;
+}
+// 用 clientWidth 而不是 innerWidth：手机上画布一旦过宽，innerWidth 会被撑大。
+function resize() {
+  view.dpr = Math.min(2, window.devicePixelRatio || 1);
+  view.w = document.documentElement.clientWidth;
+  view.h = document.documentElement.clientHeight;
+  canvas.width = view.w * view.dpr;
+  canvas.height = view.h * view.dpr;
+  canvas.style.width = view.w + 'px';
+  canvas.style.height = view.h + 'px';
+  measureRatio();
+}
+window.addEventListener('resize', resize);
+resize();
+
+// 整个窗口都是 VS Code；编辑区左右（窄窗口上下）两栏，字号按最长行缩放，最小 8px。
+function layout(V) {
+  const w = view.w, h = view.h;
+  const L = { w, h, title: 30, tabs: 35, crumbs: 22, status: 22, ruler: 14 };
+  L.act = w >= 560 ? 48 : 0;
+  L.side = w >= 1180 ? 240 : 0;
+  L.panelH = h >= 680 ? 150 : h >= 520 ? 100 : 0;
+  L.ex = L.act + L.side; L.ey = L.title + L.tabs + L.crumbs;
+  L.ew = w - L.ex; L.eh = Math.max(60, h - L.ey - L.panelH - L.status);
+  L.py = L.ey + L.eh;
+  const need = V.lv.maxLen + 1;
+  const miniFor = pw => pw >= 560 ? 56 : 0;
+  const fontFor = pw => Math.min(13, (pw - miniFor(pw) - 36) / (need + 4) / charRatio);
+  const sbsW = Math.floor((L.ew - L.ruler) / 2), fullW = L.ew - L.ruler;
+  const fSbs = fontFor(L.ew - L.ruler - sbsW), fStack = fontFor(fullW);
+  L.stacked = fSbs < 10 && fStack > fSbs;
+  L.font = Math.max(8, L.stacked ? fStack : fSbs);
+  L.chw = L.font * charRatio; L.lh = Math.round(L.font * 1.46);
+  const gutter = Math.round(L.chw * 4 + 30);
+  const mk = (side, x, y, pw, ph, mini) => ({ side, x, y, w: pw, h: ph, gutter, cx: x + gutter, cy: y + 4, mini, mx: x + pw - mini });
+  if (!L.stacked) L.panes = [mk('l', L.ex, L.ey, sbsW, L.eh, 0), mk('r', L.ex + sbsW, L.ey, fullW - sbsW, L.eh, miniFor(fullW - sbsW))];
+  else {
+    const ph = Math.floor(L.eh / 2);
+    L.panes = [mk('l', L.ex, L.ey, fullW, ph, 0), mk('r', L.ex, L.ey + ph, fullW, L.eh - ph, miniFor(fullW))];
+  }
+  L.visLines = Math.max(1, Math.floor((L.panes[0].h - 4) / L.lh));
+  L.maxScroll = Math.max(0, V.lv.left.length - L.visLines + 2);
+  return L;
+}
+function paneAt(L, x, y) {
+  for (const p of L.panes) {
+    if (x < p.x || x >= p.x + p.w - p.mini || y < p.y || y >= p.y + p.h) continue;
+    return { side: p.side, line: Math.floor((y - p.cy) / L.lh + scroll), col: (x - p.cx) / L.chw };
+  }
+  return null;
+}
+
+// ---------- 绘制 ----------
+function fit(s, maxW) {
+  if (ctx.measureText(s).width <= maxW) return s;
+  while (s.length > 1 && ctx.measureText(s + '…').width > maxW) s = s.slice(0, -1);
+  return s + '…';
+}
+function squiggle(x0, x1, y, color, alpha) {
+  ctx.save(); ctx.globalAlpha = alpha; ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.beginPath();
+  for (let x = x0, k = 0; x <= x1 + 1; x += 2, k++) ctx[k ? 'lineTo' : 'moveTo'](x, y + (k % 2 ? -1.2 : 1.2));
+  ctx.stroke(); ctx.restore();
+}
+function draw() {
+  ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
+  ctx.textBaseline = 'middle';
+  const V = boss ? bossView : liveView, L = layout(V);
+  ctx.fillStyle = '#1e1e1e'; ctx.fillRect(0, 0, L.w, L.h);
+  drawTitleBar(L); drawActivity(L); drawSidebar(L); drawTabs(L);
+  drawEditor(L, V); drawPanel(L); drawStatus(L, V);
+}
+function drawTitleBar(L) {
+  ctx.fillStyle = '#3c3c3c'; ctx.fillRect(0, 0, L.w, L.title);
+  ctx.font = `12px ${SANS}`; ctx.textAlign = 'left'; ctx.fillStyle = '#cccccc';
+  let x = 12;
+  const menus = L.w >= 900 ? ['文件', '编辑', '选择', '查看', '转到', '运行', '终端', '帮助'] : [];
+  for (const m of menus) { ctx.fillText(m, x, L.title / 2); x += ctx.measureText(m).width + 18; }
+  ctx.textAlign = 'center';
+  const ctrlW = L.w >= 480 ? 138 : 0, room = L.w - 2 * Math.max(x, ctrlW) - 20;
+  if (room > 60) ctx.fillText(fit(TITLE, room), L.w / 2, L.title / 2);
+  if (ctrlW) ['—', '☐', '✕'].forEach((g, i) => ctx.fillText(g, L.w - 115 + i * 46, L.title / 2));
+}
+function drawActivity(L) {
+  if (!L.act) return;
+  const y0 = L.title, h = L.h - L.title - L.status;
+  ctx.fillStyle = '#333333'; ctx.fillRect(0, y0, 48, h);
+  ctx.lineWidth = 1.5; ctx.lineCap = 'round';
+  const icon = (i, active, fn) => {
+    const cx = 24, cy = y0 + 24 + i * 48;
+    ctx.strokeStyle = ctx.fillStyle = active ? '#ffffff' : '#858585';
+    if (active) { ctx.fillRect(0, cy - 24, 2, 48); }
+    ctx.beginPath(); fn(cx, cy); ctx.stroke();
+  };
+  icon(0, L.side > 0, (x, y) => { ctx.rect(x - 7, y - 9, 11, 14); ctx.moveTo(x - 3, y + 9); ctx.lineTo(x + 8, y + 9); ctx.lineTo(x + 8, y - 5); });
+  icon(1, false, (x, y) => { ctx.arc(x + 2, y - 2, 6, 0, Math.PI * 2); ctx.moveTo(x - 2, y + 2); ctx.lineTo(x - 9, y + 9); });
+  icon(2, L.side === 0, (x, y) => {
+    ctx.arc(x - 5, y - 7, 2.5, 0, Math.PI * 2); ctx.moveTo(x - 2.5, y + 7); ctx.arc(x - 5, y + 7, 2.5, 0, Math.PI * 2);
+    ctx.moveTo(x + 7.5, y - 3); ctx.arc(x + 5, y - 3, 2.5, 0, Math.PI * 2);
+    ctx.moveTo(x - 5, y - 4.5); ctx.lineTo(x - 5, y + 4.5); ctx.moveTo(x + 5, y - 0.5); ctx.quadraticCurveTo(x + 5, y + 3, x - 4, y + 5);
+  });
+  icon(3, false, (x, y) => { ctx.moveTo(x - 5, y - 8); ctx.lineTo(x + 7, y); ctx.lineTo(x - 5, y + 8); ctx.closePath(); });
+  icon(4, false, (x, y) => { ctx.rect(x - 8, y - 2, 7, 7); ctx.rect(x - 1, y - 2, 7, 7); ctx.rect(x - 8, y - 9, 7, 7); ctx.rect(x + 2, y - 11, 7, 7); });
+  // 源代码管理角标：1 个已修改文件
+  ctx.fillStyle = '#007acc'; ctx.beginPath(); ctx.arc(33, y0 + 24 + 96 + 9, 7, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#fff'; ctx.font = `10px ${SANS}`; ctx.textAlign = 'center'; ctx.fillText('1', 33, y0 + 24 + 96 + 9.5);
+  ctx.strokeStyle = '#858585'; ctx.beginPath(); ctx.arc(24, y0 + h - 64, 8, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath(); ctx.arc(24, y0 + h - 20, 7, 0, Math.PI * 2); ctx.arc(24, y0 + h - 20, 2.5, 0, Math.PI * 2); ctx.stroke();
+}
+const TREE = [
+  [0, '▾ MOYUFUN-ADMIN', 'h'], [1, '▸ .github'], [1, '▸ node_modules'], [1, '▾ src'], [2, '▸ app'], [2, '▸ components'],
+  [2, '▸ hooks'], [2, '▾ services'], [3, 'orders.service.ts', 'ts'], [3, 'report.service.ts', 'sel'], [3, 'types.ts', 'ts'],
+  [2, '▸ utils'], [1, '▸ tests'], [1, '.env.example'], [1, '.gitignore'], [1, 'package.json', 'json'], [1, 'pnpm-lock.yaml'],
+  [1, 'README.md'], [1, 'tsconfig.json', 'json'],
+];
+function drawSidebar(L) {
+  if (!L.side) return;
+  const x0 = L.act, y0 = L.title, h = L.h - L.title - L.status;
+  ctx.fillStyle = '#252526'; ctx.fillRect(x0, y0, L.side, h);
+  ctx.textAlign = 'left'; ctx.font = `11px ${SANS}`; ctx.fillStyle = '#bbbbbb';
+  ctx.fillText('资源管理器', x0 + 20, y0 + 18); ctx.fillText('···', x0 + L.side - 30, y0 + 18);
+  ctx.font = `13px ${SANS}`;
+  TREE.forEach(([depth, name, kind], i) => {
+    const y = y0 + 36 + i * 22;
+    if (y + 22 > y0 + h - 60) return;
+    if (kind === 'sel') { ctx.fillStyle = '#37373d'; ctx.fillRect(x0, y, L.side, 22); ctx.strokeStyle = '#007fd4'; ctx.strokeRect(x0 + 0.5, y + 0.5, L.side - 1, 21); }
+    let x = x0 + 8 + depth * 12;
+    if (kind === 'h') { ctx.font = `bold 11px ${SANS}`; ctx.fillStyle = '#cccccc'; ctx.fillText(name, x, y + 11); ctx.font = `13px ${SANS}`; return; }
+    if (kind === 'ts' || kind === 'sel') { ctx.font = `bold 9px ${SANS}`; ctx.fillStyle = '#519aba'; ctx.fillText('TS', x + 12, y + 11); ctx.font = `13px ${SANS}`; x += 30; }
+    else if (kind === 'json') { ctx.fillStyle = '#cbcb41'; ctx.fillText('{}', x + 12, y + 11); x += 30; }
+    else if (!name.startsWith('▸') && !name.startsWith('▾')) x += 30;
+    ctx.fillStyle = kind === 'sel' ? '#e2c08d' : '#cccccc';
+    ctx.fillText(name, x, y + 11);
+    if (kind === 'sel') { ctx.textAlign = 'right'; ctx.fillText('M', x0 + L.side - 12, y + 11); ctx.textAlign = 'left'; }
+  });
+  ctx.font = `bold 11px ${SANS}`; ctx.fillStyle = '#cccccc';
+  ctx.fillStyle = '#3c3c3c'; ctx.fillRect(x0, y0 + h - 44, L.side, 1); ctx.fillRect(x0, y0 + h - 22, L.side, 1);
+  ctx.fillStyle = '#cccccc'; ctx.fillText('▸ 大纲', x0 + 8, y0 + h - 33); ctx.fillText('▸ 时间线', x0 + 8, y0 + h - 11);
+}
+function drawTabs(L) {
+  const x0 = L.ex, y0 = L.title;
+  ctx.fillStyle = '#252526'; ctx.fillRect(x0, y0, L.w - x0, L.tabs);
+  ctx.font = `13px ${SANS}`; ctx.textAlign = 'left';
+  let x = x0;
+  [['report.service.ts (工作树)', true], ['orders.service.ts', false], ['types.ts', false]].forEach(([name, active]) => {
+    const tw = ctx.measureText(name).width + 66;
+    if (x + tw > L.w - 90 && !active) return;
+    ctx.fillStyle = active ? '#1e1e1e' : '#2d2d2d'; ctx.fillRect(x, y0, tw, L.tabs);
+    ctx.fillStyle = '#252526'; ctx.fillRect(x + tw - 1, y0, 1, L.tabs);
+    ctx.font = `bold 9px ${SANS}`; ctx.fillStyle = '#519aba'; ctx.fillText('TS', x + 12, y0 + L.tabs / 2);
+    ctx.font = `13px ${SANS}`; ctx.fillStyle = active ? '#ffffff' : '#969696'; ctx.fillText(name, x + 30, y0 + L.tabs / 2);
+    if (active) { ctx.fillStyle = '#cccccc'; ctx.fillText('×', x + tw - 22, y0 + L.tabs / 2); }
+    x += tw;
+  });
+  ctx.fillStyle = '#c5c5c5'; ctx.textAlign = 'right'; ctx.font = `13px ${SANS}`;
+  ctx.fillText('↑   ↓   ⋯', L.w - 14, y0 + L.tabs / 2);
+  // 面包屑
+  const cy = y0 + L.tabs;
+  ctx.fillStyle = '#1e1e1e'; ctx.fillRect(x0, cy, L.w - x0, L.crumbs);
+  ctx.textAlign = 'left'; ctx.font = `12px ${SANS}`; ctx.fillStyle = '#a9a9a9';
+  ctx.fillText('src  ›  services  ›  report.service.ts', x0 + 16, cy + 11);
+}
+function drawEditor(L, V) {
+  const reveal = boss || state === 'over';
+  for (const p of L.panes) drawPane(L, p, V, reveal);
+  // 中间分隔线与概览标尺
+  const r = L.panes[1];
+  ctx.fillStyle = '#444444';
+  if (L.stacked) ctx.fillRect(r.x, r.y, r.w, 1); else ctx.fillRect(r.x, r.y, 1, r.h);
+  const rx = L.ex + L.ew - L.ruler, n = V.lv.left.length, sc = boss ? 0 : scroll;
+  ctx.fillStyle = '#1e1e1e'; ctx.fillRect(rx, L.ey, L.ruler, L.eh);
+  ctx.fillStyle = '#2b2b2b'; ctx.fillRect(rx, L.ey, 1, L.eh);
+  if (L.maxScroll > 0 || boss) {
+    ctx.fillStyle = 'rgba(121,121,121,0.2)';
+    ctx.fillRect(rx + 1, L.ey + (sc / n) * L.eh, L.ruler - 1, Math.min(1, L.visLines / n) * L.eh);
+  }
+  for (const d of V.lv.diffs) {
+    const y = L.ey + (d.line / n) * L.eh, hh = Math.max(3, L.eh / n);
+    if (d.found || reveal) {
+      ctx.fillStyle = 'rgba(255,0,0,0.6)'; ctx.fillRect(rx + 2, y, 5, hh);
+      ctx.fillStyle = 'rgba(155,185,85,0.8)'; ctx.fillRect(rx + 8, y, 5, hh);
+    }
+    if (!boss && fx.hint && fx.hint.d === d) { ctx.fillStyle = '#cca700'; ctx.fillRect(rx + 2, y, 11, hh); }
+  }
+}
+function drawPane(L, p, V, reveal) {
+  const lines = p.side === 'l' ? V.pl : V.pr, sc = boss ? 0 : scroll, lh = L.lh, chw = L.chw;
+  ctx.save(); ctx.beginPath(); ctx.rect(p.x, p.y, p.w, p.h); ctx.clip();
+  ctx.fillStyle = '#1e1e1e'; ctx.fillRect(p.x, p.y, p.w, p.h);
+  const first = Math.max(0, Math.floor(sc)), last = Math.min(lines.length, Math.ceil(sc + L.visLines + 1));
+  const lineBg = p.side === 'l' ? 'rgba(255,0,0,0.13)' : 'rgba(155,185,85,0.15)';
+  const textBg = p.side === 'l' ? 'rgba(255,0,0,' : 'rgba(155,185,85,';
+  const caretOn = !boss && caret && caret.side === p.side && state !== 'over';
+  for (let n = first; n < last; n++) {
+    const y = p.cy + (n - sc) * lh, d = V.byLine.get(n), shown = d && (d.found || reveal);
+    if (shown) {
+      const [a, b] = p.side === 'l' ? d.l : d.r, k = boss ? 0 : d.flash;
+      ctx.fillStyle = lineBg; ctx.fillRect(p.x, y, p.w, lh);
+      ctx.fillStyle = textBg + (0.33 + k * 0.6) + ')'; ctx.fillRect(p.cx + a * chw, y, Math.max(2, (b - a) * chw), lh);
+      ctx.fillStyle = '#c5c5c5'; ctx.textAlign = 'center'; ctx.font = `${L.font}px ${MONO}`;
+      ctx.fillText(p.side === 'l' ? '−' : '+', p.x + p.gutter - 12, y + lh / 2);
+    } else if (caretOn && caret.line === n) {
+      ctx.strokeStyle = '#282828'; ctx.lineWidth = 2; ctx.strokeRect(p.x + p.gutter, y + 1, p.w - p.gutter - p.mini - 2, lh - 2);
+    }
+    ctx.font = `${L.font}px ${MONO}`; ctx.textAlign = 'right';
+    ctx.fillStyle = caretOn && caret.line === n ? '#c6c6c6' : '#6e7681';
+    ctx.fillText(String(n + 1), p.x + chw * 4 + 8, y + lh / 2);
+    ctx.textAlign = 'left';
+    for (const tok of lines[n]) {
+      if (tok.k === 'ws') continue;
+      ctx.fillStyle = tok.color; ctx.fillText(tok.t, p.cx + tok.c * chw, y + lh / 2 + 0.5);
+    }
+  }
+  if (!boss) {
+    for (const w of fx.wrong) if (w.pane === p.side && w.line >= first && w.line < last)
+      squiggle(p.cx + w.a * chw, p.cx + w.b * chw, p.cy + (w.line - sc + 1) * lh - 2, '#f14c4c', Math.min(1, w.t * 2));
+    if (fx.hint) {
+      const d = fx.hint.d, [a, b] = p.side === 'l' ? d.l : d.r;
+      if (!d.found) squiggle(p.cx + a * chw - 2, p.cx + Math.max(b, a + 1) * chw + 2, p.cy + (d.line - sc + 1) * lh - 2, '#cca700', Math.min(1, fx.hint.t));
+    }
+    if (caretOn && Math.floor(uiT / 0.53) % 2 === 0 && caret.line >= first && caret.line < last) {
+      ctx.fillStyle = '#aeafad'; ctx.fillRect(p.cx + caret.col * chw, p.cy + (caret.line - sc) * lh + 1, 2, lh - 2);
+    }
+  }
+  if (p.mini) drawMinimap(L, p, lines, sc);
+  ctx.restore();
+}
+function drawMinimap(L, p, lines, sc) {
+  const mh = Math.min(2, (p.h - 8) / lines.length);
+  ctx.fillStyle = '#1e1e1e'; ctx.fillRect(p.mx, p.y, p.mini, p.h);
+  ctx.globalAlpha = 0.5;
+  lines.forEach((tk, n) => {
+    for (const tok of tk) {
+      if (tok.k === 'ws') continue;
+      ctx.fillStyle = tok.color; ctx.fillRect(p.mx + 6 + tok.c * 0.7, p.y + 4 + n * mh, Math.max(0.7, tok.t.length * 0.7), mh * 0.7);
+    }
+  });
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = 'rgba(121,121,121,0.18)'; ctx.fillRect(p.mx, p.y + 4 + sc * mh, p.mini, L.visLines * mh);
+}
+function drawPanel(L) {
+  if (!L.panelH) return;
+  const x0 = L.ex, y0 = L.py, w = L.w - x0;
+  ctx.fillStyle = '#1e1e1e'; ctx.fillRect(x0, y0, w, L.panelH);
+  ctx.fillStyle = '#474747'; ctx.fillRect(x0, y0, w, 1);
+  ctx.font = `11px ${SANS}`; ctx.textAlign = 'left';
+  let x = x0 + 18;
+  ['问题', '输出', '调试控制台', '终端', '端口'].forEach(t => {
+    ctx.fillStyle = t === '终端' ? '#e7e7e7' : '#969696'; ctx.fillText(t, x, y0 + 18);
+    const tw = ctx.measureText(t).width;
+    if (t === '终端') { ctx.fillRect(x, y0 + 30, tw, 1); }
+    x += tw + 26;
+  });
+  ctx.fillStyle = '#c5c5c5'; ctx.textAlign = 'right'; ctx.fillText('zsh  +  ⌄  ⋯  ✕', L.w - 14, y0 + 18);
+  const rows = boss ? [
+    { s: '~/moyufun-admin main* $ git status --short', c: '#cccccc' },
+    { s: ' M src/services/report.service.ts', c: '#e2c08d' },
+    { s: '~/moyufun-admin main* $ ', c: '#cccccc' },
+  ] : log;
+  const lineH = 17, maxRows = Math.floor((L.panelH - 44) / lineH);
+  ctx.textAlign = 'left'; ctx.font = `12px ${MONO}`;
+  rows.slice(-maxRows).forEach((r, i) => { ctx.fillStyle = r.c; ctx.fillText(fit(r.s, w - 40), x0 + 18, y0 + 50 + i * lineH); });
+}
+function fmtClock(s) { const t = Math.max(0, Math.ceil(s)); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; }
+function drawStatus(L, V) {
+  const y = L.h - L.status;
+  ctx.fillStyle = '#007acc'; ctx.fillRect(0, y, L.w, L.status);
+  ctx.font = `12px ${SANS}`; ctx.textAlign = 'left';
+  let x = 0;
+  const item = (s, bg) => {
+    const w = ctx.measureText(s).width + 16;
+    if (bg) { ctx.fillStyle = bg; ctx.fillRect(x, y, w, L.status); }
+    ctx.fillStyle = '#ffffff'; ctx.fillText(s, x + 8, y + L.status / 2); x += w;
+  };
+  ctx.fillStyle = '#16825d'; ctx.fillRect(0, y, 34, L.status); ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.fillText('><', 17, y + 11);
+  ctx.textAlign = 'left'; x = 34;
+  item('⎇ main*');
+  item(`⊗ ${boss ? 0 : wrongs}  ⚠ ${boss ? 0 : hints}`);
+  if (!boss) {
+    const total = V.lv.diffs.length, found = V.lv.diffs.filter(d => d.found).length;
+    if (state === 'over') {
+      item('⏱ 0:00', '#c72e0f');
+      item(`时间到 · 找到 ${finds} 处 · 最佳 ${best} · 点击编辑器重新开始`);
+    } else {
+      item(`⇄ ${found}/${total}`);
+      item(`⏱ ${fmtClock(clock)}`, state === 'play' && clock < 10 ? '#c72e0f' : null);
+      if (fx.pen > 0) item(`−${WRONG_PENALTY}s`, '#c72e0f');
+      if (state === 'ready') item(`找出右侧 ${total} 处改动，点击代码开始 · Tab 提示 · Esc 隐藏`);
+      else if (state === 'clear') item('✓ 本轮比较完成');
+      else item(`✓ ${finds}`);
+    }
+    if (fx.notice) item(fx.notice.s);
+  }
+  const ln = !boss && caret ? caret.line + 1 : 1, col = !boss && caret ? Math.floor(caret.col) + 1 : 1;
+  ctx.textAlign = 'right';
+  let rx = L.w - 10;
+  for (const s of ['TypeScript', '{ }', 'LF', 'UTF-8', '空格: 2', `行 ${ln}，列 ${col}`]) {
+    const tw = ctx.measureText(s).width;
+    if (rx - tw < x + 12) break;
+    ctx.fillStyle = '#ffffff'; ctx.fillText(s, rx, y + L.status / 2); rx -= tw + 18;
+  }
+}
+
+// ---------- 输入 ----------
+let drag = null;
+function handleClick(x, y) {
+  if (boss) return;
+  if (state === 'over') { if (overT >= RESTART_DELAY && y > 30 && y < view.h - 22) newRun(); return; }
+  const L = layout(liveView), hit = paneAt(L, x, y);
+  if (!hit || hit.line < 0 || hit.line >= liveView.lv.left.length || hit.col < 0) return;
+  const len = liveView.lv[hit.side === 'l' ? 'left' : 'right'][hit.line].length;
+  caret = { side: hit.side, line: hit.line, col: Math.min(len, Math.round(hit.col)) };
+  clickCode(hit.side, hit.line, hit.col);
+}
+canvas.addEventListener('pointerdown', e => {
+  ensureAudio();
+  drag = { id: e.pointerId, y: e.clientY, s: scroll, moved: false, touch: e.pointerType !== 'mouse' };
+});
+canvas.addEventListener('pointermove', e => {
+  if (drag && e.pointerId === drag.id && drag.touch && !boss) {
+    if (Math.abs(e.clientY - drag.y) > 8) drag.moved = true;
+    if (drag.moved) setScroll(drag.s - (e.clientY - drag.y) / layout(liveView).lh);
+  }
+  if (e.pointerType === 'mouse') canvas.style.cursor = !boss && paneAt(layout(liveView), e.clientX, e.clientY) ? 'text' : 'default';
+});
+canvas.addEventListener('pointerup', e => {
+  if (!drag || e.pointerId !== drag.id) return;
+  const d = drag; drag = null;
+  if (!d.moved) handleClick(e.clientX, e.clientY);
+});
+canvas.addEventListener('pointercancel', () => { drag = null; });
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  if (boss) return;
+  setScroll(scroll + (e.deltaMode ? e.deltaY * 3 : e.deltaY / layout(liveView).lh));
+}, { passive: false });
+window.addEventListener('blur', () => { drag = null; });
+window.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { e.preventDefault(); toggleBoss(); return; }
+  if (e.code === 'KeyM') { toggleSound(); return; }
+  if (boss) return;
+  if (e.key === 'Tab') { e.preventDefault(); hint(); return; }
+  if (e.key === 'Enter' && state === 'over' && overT >= RESTART_DELAY) { newRun(); return; }
+  const page = layout(liveView).visLines - 2;
+  const step = { ArrowDown: 1, ArrowUp: -1, PageDown: page, PageUp: -page, Home: -1e4, End: 1e4 }[e.key];
+  if (step) { e.preventDefault(); setScroll(scroll + step); }
+});
+
+// ---------- 启动 ----------
+newRun();
+document.title = TITLE;
+// 主站在水合后才监听消息，单发的 ready 可能丢；重复的 ready 和 disguise 主站会忽略。start 在第一次点代码时才发。
+function announce() { emitMoYuFunEvent('ready'); emitMoYuFunDisguise(APP, TITLE); }
+announce();
+for (const ms of [500, 2000, 5000]) setTimeout(announce, ms);
+let lastFrame = null;
+function frame(now) {
+  const dt = lastFrame === null ? 0 : Math.min(0.1, (now - lastFrame) / 1000);
+  lastFrame = now;
+  update(dt); draw();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
