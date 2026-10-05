@@ -1,28 +1,29 @@
 {
   "slug": "promotion-2048",
-  "name": "升官记",
-  "shortDescription": "2048 职场版：从实习生一路合成到财务自由。",
-  "description": "方向键滑动棋盘，两个相同的职位合并成更高一级。从实习生、专员、经理、总监一路升到 CEO 和董事长，最终实现财务自由。每局可以让背锅侠帮你撤回一步。",
+  "name": "表格 2048",
+  "shortDescription": "伪装成 Excel 预算表的 2048，老板路过按 Esc。",
+  "description": "棋盘藏在一张季度预算表里：方向键滑动，两个相同的数合并成两倍，条件格式色阶随数字变绿，合计和占比实时更新。每局可以 Ctrl+Z 撤销一步，合成 2048 后可以继续算下去。默认静音，Esc 一键切回正常表格。",
   "tags": ["益智", "2048", "单人"],
   "controls": [
     { "input": "方向键 / WASD", "action": "滑动" },
     { "input": "拖动 / 滑动屏幕", "action": "滑动" },
-    { "input": "Z", "action": "撤回一步（每局一次）" },
-    { "input": "M", "action": "静音或恢复声音" },
-    { "input": "R", "action": "重新开始" }
+    { "input": "Ctrl+Z / Cmd+Z", "action": "撤销一步（每局一次）" },
+    { "input": "Ctrl+N / R / 功能区「新建」", "action": "新开一局" },
+    { "input": "Esc", "action": "老板键：切回普通表格" },
+    { "input": "M", "action": "打开或关闭声音（默认关闭）" }
   ],
-  "cover": { "symbol": "升", "eyebrow": "2048", "accent": "#ffb020", "accentSecondary": "#ff5a5a" },
+  "cover": { "symbol": "表", "eyebrow": "2048", "accent": "#217346", "accentSecondary": "#63be7b" },
   "sortOrder": 60,
   "achievements": [
-    { "key": "manager", "name": "升任经理", "description": "合成经理。", "symbol": "经" },
-    { "key": "ceo", "name": "走上巅峰", "description": "合成 CEO。", "symbol": "巅" },
-    { "key": "freedom", "name": "财务自由", "description": "合成财务自由。", "symbol": "由" },
-    { "key": "double", "name": "双喜临门", "description": "一步之内合成两个总监或更高职位。", "symbol": "喜" },
-    { "key": "no_undo", "name": "不背锅", "description": "不用撤回合成 CEO。", "symbol": "锅" }
+    { "key": "manager", "name": "合成 32", "description": "合成 32。", "symbol": "32" },
+    { "key": "ceo", "name": "合成 512", "description": "合成 512。", "symbol": "百" },
+    { "key": "freedom", "name": "合成 2048", "description": "合成 2048。", "symbol": "千" },
+    { "key": "double", "name": "双倍合并", "description": "一步之内合成两个 64 或更大的数。", "symbol": "双" },
+    { "key": "no_undo", "name": "零撤销", "description": "不撤销合成 512。", "symbol": "稳" }
   ],
   "stats": [
     { "key": "rounds", "name": "对局", "maxPerRound": 1 },
-    { "key": "wins", "name": "财务自由", "maxPerRound": 1 },
-    { "key": "merges", "name": "升职", "maxPerRound": 20000 }
+    { "key": "wins", "name": "合成 2048", "maxPerRound": 1 },
+    { "key": "merges", "name": "合并", "maxPerRound": 20000 }
   ]
 }

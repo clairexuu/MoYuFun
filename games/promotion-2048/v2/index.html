@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Q4预算测算_财务部_v7.xlsx - Excel</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #fff;
+    user-select: none; -webkit-user-select: none; }
+  #game { position: absolute; inset: 0; display: block; touch-action: none; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<script>
+'use strict';
+/* 表格 2048：2048 伪装成 Excel 预算表。设计文档：docs/games/promotion-2048.md */
+
+// ---------- 常量 ----------
+const TITLE = 'Q4预算测算_财务部_v7.xlsx - Excel';
+const SANS = '"PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif';
+const GREEN = '#217346';
+const SLIDE = 0.09, FLASH = 0.35, FADE = 0.15;   // 动画时长（秒）
+const BEST_KEY = 'moyufun:promotion-2048:best';
+
+// ---------- MoYuFun SDK v1 ----------
+const MOYUFUN_PARENT_ORIGIN = location.hostname === 'localhost'
+  ? 'http://localhost:3000'
+  : 'https://www.moyufuns.com';
+function emitMoYuFunEvent(type) {
+  if (window.parent === window) return;
+  window.parent.postMessage({ source: 'moyufun-game', version: 1, type }, MOYUFUN_PARENT_ORIGIN);
+}
+function emitMoYuFunAchievement(key) {
+  if (window.parent === window) return;
+  window.parent.postMessage({ source: 'moyufun-game', version: 1, type: 'achievement', key }, MOYUFUN_PARENT_ORIGIN);
+}
+// 战绩：每局结算时发送一次，在成就之后、end 之前；键和上限在 game.json 的 stats 中声明。
+function emitMoYuFunStats(stats) {
+  if (window.parent === window) return;
+  window.parent.postMessage({ source: 'moyufun-game', version: 1, type: 'stats', stats }, MOYUFUN_PARENT_ORIGIN);
+}
+// 伪装：每次 ready 之后发送；标题或皮肤变化时再发。
+function emitMoYuFunDisguise(app, title) {
+  if (window.parent === window) return;
+  window.parent.postMessage({ source: 'moyufun-game', version: 1, type: 'disguise', app, title }, MOYUFUN_PARENT_ORIGIN);
+}
+// 成就：每局每个 key 最多发送一次；结算时的成就必须在 end 之前发送（主站在 end 后忽略成就）。
+let roundAchievements = new Set();
+function unlockAchievement(key) {
+  if (roundAchievements.has(key)) return;
+  roundAchievements.add(key);
+  emitMoYuFunAchievement(key);
+}
+
+// ---------- 音频（默认静音，M 切换） ----------
+let AC = null, master = null, muted = true;
+function ensureAudio() {
+  if (!AC) {
+    try {
+      AC = new (window.AudioContext || window.webkitAudioContext)();
+      master = AC.createGain(); master.gain.value = 0.12; master.connect(AC.destination);
+    } catch (err) { AC = null; }
+  }
+  if (AC && AC.state === 'suspended') AC.resume();
+}
+function tone(f0, f1, dur, type, vol) {
+  if (!AC || muted) return;
+  const t = AC.currentTime, o = AC.createOscillator(), g = AC.createGain();
+  o.type = type || 'sine';
+  o.frequency.setValueAtTime(Math.max(1, f0), t);
+  o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t + dur);
+  g.gain.setValueAtTime(vol || 1, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  o.connect(g); g.connect(master); o.start(t); o.stop(t + dur + 0.03);
+}
+
+// ---------- 规则（纯函数，与 v1 相同） ----------
+// 棋盘是 16 格的等级数组（0 = 空，等级 n 的值为 2^n），下标 = 行 * 4 + 列。LINES[dir] 的每条线从移动方向的边开始。
+const LINES = { left: [], right: [], up: [], down: [] };
+for (let i = 0; i < 4; i++) {
+  const row = [0, 1, 2, 3].map(k => i * 4 + k), col = [0, 1, 2, 3].map(k => k * 4 + i);
+  LINES.left.push(row); LINES.right.push([...row].reverse());
+  LINES.up.push(col); LINES.down.push([...col].reverse());
+}
+// moves 记录每块的起止格，供动画使用；两块落到同一格即为合并。
+function slide(board, dir) {
+  const out = board.slice(), merged = [], moves = [];
+  let gain = 0, moved = false;
+  for (const line of LINES[dir]) {
+    let t = -1, canMerge = false;
+    for (const i of line) out[i] = 0;
+    for (const i of line) {
+      const v = board[i];
+      if (!v) continue;
+      if (canMerge && out[line[t]] === v) {
+        out[line[t]] = v + 1; merged.push(v + 1); gain += 2 ** (v + 1); canMerge = false;
+      } else {
+        out[line[++t]] = v; canMerge = true;
+      }
+      moves.push({ from: i, to: line[t] });
+      if (i !== line[t]) moved = true;
+    }
+  }
+  return { board: out, moved, merged, gain, moves };
+}
+function canMove(board) {
+  return board.includes(0) || ['left', 'right', 'up', 'down'].some(d => slide(board, d).moved);
+}
+
+// ---------- 表格坐标 ----------
+// 棋盘占 C4:F7。列下标从 0 开始（A = 0），行号从 1 开始，和 Excel 一致。
+const colName = c => String.fromCharCode(65 + c);
+const cellCol = i => 2 + (i & 3), cellRow = i => 4 + (i >> 2);
+const addr = i => colName(cellCol(i)) + cellRow(i);
+const fmt = v => Math.round(v).toLocaleString('en-US');
+function mix(a, b, t) {
+  const p = s => [1, 3, 5].map(k => parseInt(s.slice(k, k + 2), 16)), A = p(a), B = p(b);
+  return '#' + A.map((v, k) => Math.round(v + (B[k] - v) * t).toString(16).padStart(2, '0')).join('');
+}
+// 三色刻度（数字型）：2 = 白，64 = #ffeb84，2048 = #63be7b。
+function scaleColor(lv) {
+  lv = Math.min(lv, 11);
+  return lv <= 6 ? mix('#ffffff', '#ffeb84', (lv - 1) / 5) : mix('#ffeb84', '#63be7b', (lv - 6) / 5);
+}
+
+// ---------- 状态 ----------
+let rng = Math.random;
+let board, score, merges, won, over, hasMoved, undoUsed, prev;
+let dialog = null;          // null | 'over' | 'win' | 'saved'
+let boss = false, anim = null, shownScore = 0;
+let active = null;          // 选中单元格：{ name, formula }
+let best = 0;
+try { best = Number(localStorage.getItem(BEST_KEY)) || 0; } catch (err) { best = 0; }
+
+const SCORE_CELL = { name: 'C10', formula: '=SUM(合并记录!C:C)' };
+
+function spawn() {
+  const empty = [];
+  board.forEach((v, i) => { if (!v) empty.push(i); });
+  if (!empty.length) return -1;
+  const i = empty[Math.floor(rng() * empty.length)];
+  board[i] = rng() < 0.9 ? 1 : 2;
+  return i;
+}
+
+function move(dir) {
+  if (over || dialog || boss) return;
+  const r = slide(board, dir);
+  if (!r.moved) return;
+  if (!hasMoved) emitMoYuFunEvent('start');
+  const before = board;
+  prev = { board: board.slice(), score };
+  board = r.board; score += r.gain; merges += r.merged.length; hasMoved = true;
+  const spawned = spawn();
+
+  // 合并的格子闪一下；选中框跳到本步最大的合并格，编辑栏显示 =D5+E5。
+  const targets = r.moves.map(mv => mv.to), mergedCells = targets.filter((to, k) => targets.indexOf(to) !== k);
+  anim = { t: 0, prev: before, moves: r.moves, merged: mergedCells, spawned };
+  if (mergedCells.length) {
+    const top = mergedCells.reduce((a, b) => (board[b] > board[a] ? b : a));
+    const refs = r.moves.filter(mv => mv.to === top).map(mv => addr(mv.from)).sort();
+    active = { name: addr(top), formula: '=' + refs.join('+') };
+  } else active = SCORE_CELL;
+  if (score > best) best = score;
+
+  const m = r.merged;
+  if (m.includes(5)) unlockAchievement('manager');
+  if (m.filter(lv => lv >= 6).length >= 2) unlockAchievement('double');
+  if (m.includes(9)) {
+    unlockAchievement('ceo');
+    if (!undoUsed) unlockAchievement('no_undo');
+  }
+  if (m.length) tone(330 * 2 ** (Math.max(...m) / 12), 440 * 2 ** (Math.max(...m) / 12), 0.06, 'sine', 0.4);
+
+  if (m.includes(11) && !won) {
+    won = true;
+    unlockAchievement('freedom');
+    dialog = 'win';
+  }
+  if (!canMove(board)) endRound();
+}
+
+function undo() {
+  if (!prev || undoUsed || over || dialog || boss) return;
+  board = prev.board; score = prev.score; prev = null; undoUsed = true;
+  anim = null; active = SCORE_CELL;
+}
+function retire() { if (dialog === 'win') endRound(true); }
+function continueWork() { if (dialog === 'win') dialog = null; }
+
+function endRound(retired) {
+  if (over) return;
+  over = true;
+  emitMoYuFunStats({ rounds: 1, wins: won ? 1 : 0, merges: Math.min(merges, 20000) });
+  emitMoYuFunEvent('end');
+  try { localStorage.setItem(BEST_KEY, String(best)); } catch (err) { /* 无痕模式等 */ }
+  dialog = retired ? 'saved' : 'over';
+}
+
+function startGame() {
+  if (hasMoved && !over) endRound();
+  board = Array(16).fill(0); score = 0; merges = 0; shownScore = 0;
+  won = false; over = false; hasMoved = false; undoUsed = false; prev = null;
+  dialog = null; anim = null; active = SCORE_CELL;
+  roundAchievements = new Set();
+  spawn(); spawn();
+}
+
+// 只推进动画和计数；老板键时冻结。
+function update(dt) {
+  if (boss) return;
+  if (anim) { anim.t += dt; if (anim.t > SLIDE + FLASH) anim = null; }
+  shownScore += (score - shownScore) * Math.min(1, dt * 14);
+  if (Math.abs(score - shownScore) < 1) shownScore = score;
+}
+
+// ---------- 画布与布局 ----------
+const cv = document.getElementById('game'), ctx = cv.getContext('2d');
+const view = { w: 0, h: 0, dpr: 1, zoom: 1, colX: [], rowY: [] };
+const TOP = 132, HEAD = 22, ROWHEAD = 36, BOTTOM = 50;
+const COL_W = [18, 84, 80, 80, 80, 80, 88, 70];   // A..H，其余 72
+const colW = c => (COL_W[c] || 72) * view.zoom;
+const rowH = r => (r === 1 ? 32 : 24) * view.zoom;
+function resize() {
+  view.dpr = Math.min(2, window.devicePixelRatio || 1);
+  view.w = Math.max(1, document.documentElement.clientWidth);
+  view.h = Math.max(1, document.documentElement.clientHeight);
+  cv.width = Math.round(view.w * view.dpr); cv.height = Math.round(view.h * view.dpr);
+  cv.style.width = view.w + 'px'; cv.style.height = view.h + 'px';
+  // 缩放：尽量放下 A–H 列和 1–11 行；太窄时只保证 A–F。按 10% 取整，像真的缩放比例。
+  const sum = n => COL_W.slice(0, n).reduce((a, b) => a + b, 0) + 12;
+  const availW = view.w - ROWHEAD, availH = view.h - TOP - HEAD - BOTTOM;
+  let zw = availW / sum(8);
+  if (zw < 0.9) zw = availW / sum(6);
+  const z = Math.min(zw, availH / (32 + 10 * 24 + 12), 1.5);
+  view.zoom = Math.max(0.6, Math.floor(z * 10 + 1e-6) / 10);
+  view.colX = [ROWHEAD];
+  for (let c = 0; c < 9 || view.colX[c] < view.w; c++) view.colX.push(view.colX[c] + colW(c));
+  view.rowY = [0, TOP + HEAD];
+  for (let r = 1; r < 13 || view.rowY[r] < view.h; r++) view.rowY.push(view.rowY[r] + rowH(r));
+}
+window.addEventListener('resize', resize);
+resize();
+
+function cellRect(i) {
+  const c = cellCol(i), r = cellRow(i);
+  return { x: view.colX[c], y: view.rowY[r], w: colW(c), h: rowH(r) };
+}
+
+// ---------- 表格内容 ----------
+function hash(x, y) { let h = x * 374761393 + y * 668265263; h = (h ^ (h >>> 13)) * 1274126177; return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
+const CENTERS = ['研发中心', '市场部', '销售部', '行政部'];
+const ITEMS = ['差旅费', '办公费', '招待费', '培训费', '会议费', '软件订阅', '通讯费', '物业费'];
+const STATUS = [['已报销', '#c6efce', '#006100'], ['待审批', '#ffeb9c', '#9c5700'], ['已退回', '#ffc7ce', '#9c0006']];
+// 老板键时 C4:F7 显示的普通预算数字。
+const BOSS_VALUES = Array.from({ length: 16 }, (_, i) => Math.round(120 + hash(i, 7) * 880));
+
+// 返回 { t, align, bold, fill, color, size }；values 是 C4:F7 当前显示的 16 个数（0 = 空）。
+function cellAt(c, r, values) {
+  const L = (t, extra) => Object.assign({ t, align: 'left' }, extra);
+  const N = (v, extra) => Object.assign({ t: typeof v === 'number' ? fmt(v) : v, align: 'right' }, extra);
+  const head = { bold: true, fill: '#e2efda' };
+  if (r === 1) return c === 1 ? L('2026年Q4 部门预算测算', { bold: true, size: 15 }) : null;
+  if (r === 2) return c === 1 ? L('单位：万元    编制：财务部    版本：v7（待复核）', { color: '#7f7f7f' }) : null;
+  if (r >= 3 && r <= 8 && c >= 1 && c <= 7) {
+    const rowSum = rr => values.slice((rr - 4) * 4, (rr - 3) * 4).reduce((a, b) => a + b, 0);
+    const total = values.reduce((a, b) => a + b, 0);
+    if (r === 3) return Object.assign(c === 1 ? L('成本中心') : N(['', '', 'Q1', 'Q2', 'Q3', 'Q4', '合计', '占比'][c]), head);
+    if (r === 8) {
+      if (c === 1) return L('合计', { bold: true });
+      if (c <= 5) return N([0, 1, 2, 3].reduce((s, k) => s + values[k * 4 + c - 2], 0), { bold: true });
+      return c === 6 ? N(total, { bold: true }) : N(total ? '100.0%' : '-', { bold: true });
+    }
+    if (c === 1) return L(CENTERS[r - 4]);
+    if (c === 6) return N(rowSum(r));
+    if (c === 7) { const total2 = total || 1; return N((rowSum(r) / total2 * 100).toFixed(1) + '%'); }
+    return null;   // C4:F7 由棋盘单独绘制
+  }
+  if (r === 10) return c === 1 ? L('累计核减') : null;   // C10 动态
+  if (r === 11) return c === 1 ? L('历史最佳') : null;   // C11 动态
+  if (r === 13) return c === 1 ? L('附：费用明细（10月）', { bold: true }) : null;
+  if (r === 14 && c >= 1 && c <= 7) return Object.assign(['', L('日期'), L('部门'), L('科目'), N('金额'), L('状态'), L('凭证号'), L('备注')][c], head);
+  if (r >= 15 && r <= 80 && c >= 1 && c <= 7) {
+    const k = r - 15, h = hash(k, c);
+    if (c === 1) return L(`2026/10/${String(1 + Math.floor(k * 30 / 66)).padStart(2, '0')}`);
+    if (c === 2) return L(CENTERS[Math.floor(hash(k, 2) * 4)]);
+    if (c === 3) return L(ITEMS[Math.floor(hash(k, 3) * ITEMS.length)]);
+    if (c === 4) return N((120 + h * 9800).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+    if (c === 5) { const s = STATUS[hash(k, 5) < 0.7 ? 0 : hash(k, 5) < 0.9 ? 1 : 2]; return L(s[0], { fill: s[1], color: s[2] }); }
+    if (c === 6) return L('记-' + (1040 + k * 3 + Math.floor(h * 3)));
+    if (c === 7) return h < 0.15 ? L('已附发票', { color: '#7f7f7f' }) : null;
+  }
+  return null;
+}
+
+// ---------- 绘制 ----------
+let ui = [];   // 每帧重建的可点区域，点击时按当前状态判定
+function fitText(s, maxW) {
+  if (ctx.measureText(s).width <= maxW) return s;
+  while (s.length > 1 && ctx.measureText(s + '…').width > maxW) s = s.slice(0, -1);
+  return s + '…';
+}
+function text(s, x, y, color, align, font) {
+  ctx.fillStyle = color; ctx.textAlign = align || 'left'; ctx.font = font || `12px ${SANS}`;
+  ctx.fillText(s, x, y);
+}
+
+function drawChrome() {
+  const W = view.w;
+  // 标题栏：快速访问（保存、撤销、恢复）+ 标题 + 窗口按钮
+  ctx.fillStyle = GREEN; ctx.fillRect(0, 0, W, 34);
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.2; ctx.strokeRect(14.5, 11.5, 12, 12); ctx.fillStyle = '#fff'; ctx.fillRect(17, 12, 7, 4);
+  const canUndo = !boss && prev && !undoUsed && !over && !dialog;
+  text('↶', 44, 18, canUndo ? '#fff' : 'rgba(255,255,255,.45)', 'center', `16px ${SANS}`);
+  ui.push({ x: 34, y: 4, w: 22, h: 26, act: 'undo' });
+  text('↷', 70, 18, 'rgba(255,255,255,.45)', 'center', `16px ${SANS}`);
+  ctx.font = `13px ${SANS}`;
+  text(fitText(TITLE, Math.max(40, W - 260)), W / 2, 17, '#fff', 'center', `13px ${SANS}`);
+  if (W > 360) ['—', '☐', '✕'].forEach((g, k) => text(g, W - 112 + k * 40, 17, '#fff', 'center', `12px ${SANS}`));
+  // 功能区选项卡
+  ctx.fillStyle = '#f3f3f3'; ctx.fillRect(0, 34, W, 64);
+  ['文件', '开始', '插入', '页面布局', '公式', '数据', '审阅', '视图', '帮助'].forEach((t, k) => {
+    const x = 14 + k * 64;
+    if (x > W - 30) return;
+    text(t, x, 47, k === 1 ? GREEN : '#444');
+    if (k === 1) { ctx.fillStyle = GREEN; ctx.fillRect(x, 56, 26, 2); }
+  });
+  // 功能区按钮：只有「新建」可点（新开一局）
+  const groups = [
+    { w: 44, draw: x => {
+      ctx.fillStyle = '#fff'; ctx.fillRect(x + 14, 64, 14, 17); ctx.strokeStyle = '#777'; ctx.lineWidth = 1; ctx.strokeRect(x + 14.5, 64.5, 13, 16);
+      ctx.fillStyle = GREEN; ctx.fillRect(x + 17, 70, 8, 1); ctx.fillRect(x + 17, 73, 8, 1); ctx.fillRect(x + 17, 76, 6, 1);
+      text('新建', x + 21, 89, '#333', 'center', `11px ${SANS}`);
+      ui.push({ x, y: 60, w: 44, h: 36, act: 'new' });
+    } },
+    { w: 44, draw: x => { ctx.fillStyle = '#c9b48f'; ctx.fillRect(x + 14, 64, 14, 17); ctx.fillStyle = '#fff'; ctx.fillRect(x + 17, 67, 8, 10); text('粘贴', x + 21, 89, '#333', 'center', `11px ${SANS}`); } },
+    { w: 150, draw: x => {
+      ctx.fillStyle = '#fff'; ctx.fillRect(x, 64, 90, 20); ctx.fillRect(x + 94, 64, 40, 20); ctx.strokeStyle = '#c8c8c8'; ctx.strokeRect(x + .5, 64.5, 90, 20); ctx.strokeRect(x + 94.5, 64.5, 40, 20);
+      text('等线', x + 6, 75, '#222'); text('11', x + 100, 75, '#222');
+      text('B   I   U', x + 4, 91, '#333', 'left', `bold 11px ${SANS}`);
+    } },
+    { w: 116, draw: x => {
+      ['#63be7b', '#ffeb84', '#f8696b'].forEach((c, k) => { ctx.fillStyle = c; ctx.fillRect(x + 4, 64 + k * 5, 12, 4); });
+      text('条件格式 ▾', x + 22, 70, '#333', 'left', `11px ${SANS}`);
+      ctx.fillStyle = '#e2efda'; ctx.fillRect(x + 4, 82, 12, 10);
+      text('套用表格格式 ▾', x + 22, 88, '#333', 'left', `11px ${SANS}`);
+    } },
+    { w: 110, draw: x => { text('Σ 自动求和 ▾', x + 4, 70, '#333', 'left', `11px ${SANS}`); text('排序和筛选 ▾', x + 4, 88, '#333', 'left', `11px ${SANS}`); } },
+  ];
+  let gx = 10;
+  for (const g of groups) {
+    if (gx + g.w > W) break;
+    g.draw(gx); gx += g.w + 10;
+    ctx.fillStyle = '#d6d6d6'; ctx.fillRect(gx - 5, 64, 1, 28);
+  }
+  ctx.fillStyle = '#dadada'; ctx.fillRect(0, 97, W, 1);
+  // 编辑栏
+  const cell = boss ? { name: 'B1', formula: '2026年Q4 部门预算测算' } : active;
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 98, W, 34);
+  ctx.strokeStyle = '#d4d4d4'; ctx.lineWidth = 1;
+  ctx.strokeRect(6.5, 104.5, 80, 22); ctx.strokeRect(150.5, 104.5, Math.max(10, W - 158), 22);
+  text(cell.name, 12, 116, '#222');
+  text('✕   ✓', 96, 116, '#bbb', 'left', `11px ${SANS}`);
+  text('fx', 132, 116, '#777', 'left', `italic 12px ${SANS}`);
+  ctx.font = `12px ${SANS}`;
+  text(fitText(cell.formula, Math.max(10, W - 172)), 158, 116, '#222');
+}
+
+function drawCellText(cellObj, x, y, w, h, fs) {
+  if (!cellObj || !cellObj.t) return;
+  const size = (cellObj.size || 12.5) * view.zoom;
+  ctx.font = `${cellObj.bold ? '600 ' : ''}${size.toFixed(1)}px ${SANS}`;
+  ctx.fillStyle = cellObj.color || '#222';
+  ctx.textAlign = cellObj.align;
+  ctx.fillText(cellObj.t, cellObj.align === 'right' ? x + w - 5 * view.zoom : x + 5 * view.zoom, y + h / 2 + 1);
+}
+
+function drawSheet() {
+  const W = view.w, H = view.h, { colX, rowY } = view, gridBottom = H - BOTTOM;
+  const values = boss ? BOSS_VALUES : board.map(lv => (lv ? 2 ** lv : 0));
+  const sel = boss ? { c: 1, r: 1 } : (() => { const m = /^([A-Z])(\d+)$/.exec(active.name); return { c: m[1].charCodeAt(0) - 65, r: +m[2] }; })();
+  ctx.save();
+  ctx.beginPath(); ctx.rect(0, TOP, W, gridBottom - TOP); ctx.clip();
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, TOP, W, gridBottom - TOP);
+  // 静态单元格：先填充，再画网格线，最后写字（左对齐的文字可以溢出到右边空格，像 Excel）
+  const nc = colX.length - 1, nr = rowY.length - 1;
+  const cells = [];
+  for (let r = 1; r < nr; r++) for (let c = 0; c < nc; c++) {
+    if (rowY[r] > gridBottom || colX[c] > W) continue;
+    const o = cellAt(c, r, values);
+    if (o) cells.push([o, colX[c], rowY[r], colW(c), rowH(r)]);
+  }
+  for (const [o, x, y, w, h] of cells) if (o.fill) { ctx.fillStyle = o.fill; ctx.fillRect(x, y, w, h); }
+  drawBoardFill(values);
+  ctx.strokeStyle = '#e1e1e1'; ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let c = 0; c < colX.length; c++) { ctx.moveTo(colX[c] + .5, TOP); ctx.lineTo(colX[c] + .5, gridBottom); }
+  for (let r = 1; r < rowY.length; r++) { ctx.moveTo(0, rowY[r] + .5); ctx.lineTo(W, rowY[r] + .5); }
+  ctx.stroke();
+  // 预算表边框
+  ctx.strokeStyle = '#a6a6a6'; ctx.beginPath();
+  for (let c = 1; c <= 8; c++) { ctx.moveTo(colX[c] + .5, rowY[3]); ctx.lineTo(colX[c] + .5, rowY[9]); }
+  for (let r = 3; r <= 9; r++) { ctx.moveTo(colX[1], rowY[r] + .5); ctx.lineTo(colX[8], rowY[r] + .5); }
+  ctx.stroke();
+  ctx.fillStyle = '#595959'; ctx.fillRect(colX[1], rowY[8], colX[8] - colX[1], 1.5);
+  for (const [o, x, y, w, h] of cells) drawCellText(o, x, y, w, h);
+  drawBoardText(values);
+  drawCellText({ t: fmt(boss ? 3560 : shownScore), align: 'right', bold: true }, colX[2], rowY[10], colW(2), rowH(10));
+  drawCellText({ t: fmt(boss ? 4120 : best), align: 'right', color: '#595959' }, colX[2], rowY[11], colW(2), rowH(11));
+  // 选中框
+  const sx = colX[sel.c], sy = rowY[sel.r], sw = colW(sel.c), sh = rowH(sel.r);
+  ctx.strokeStyle = GREEN; ctx.lineWidth = 2; ctx.strokeRect(sx + 1, sy + 1, sw - 2, sh - 2);
+  ctx.fillStyle = '#fff'; ctx.fillRect(sx + sw - 5, sy + sh - 5, 8, 8);
+  ctx.fillStyle = GREEN; ctx.fillRect(sx + sw - 4, sy + sh - 4, 6, 6);
+  // 行列表头
+  ctx.font = `12px ${SANS}`; ctx.textAlign = 'center';
+  for (let c = 0; c < nc; c++) {
+    const hl = c === sel.c, x = colX[c], w = colW(c);
+    ctx.fillStyle = hl ? '#d2d2d2' : '#f3f3f3'; ctx.fillRect(x, TOP, w, HEAD);
+    ctx.fillStyle = '#d4d4d4'; ctx.fillRect(x, TOP, 1, HEAD);
+    if (hl) { ctx.fillStyle = GREEN; ctx.fillRect(x, TOP + HEAD - 2, w, 2); }
+    ctx.fillStyle = hl ? GREEN : '#555'; ctx.fillText(colName(c), x + w / 2, TOP + HEAD / 2 + 1);
+  }
+  for (let r = 1; r < nr; r++) {
+    const hl = r === sel.r, y = rowY[r], h = rowH(r);
+    ctx.fillStyle = hl ? '#d2d2d2' : '#f3f3f3'; ctx.fillRect(0, y, ROWHEAD, h);
+    ctx.fillStyle = '#d4d4d4'; ctx.fillRect(0, y, ROWHEAD, 1);
+    if (hl) { ctx.fillStyle = GREEN; ctx.fillRect(ROWHEAD - 2, y, 2, h); }
+    ctx.fillStyle = hl ? GREEN : '#555'; ctx.fillText(String(r), ROWHEAD / 2, y + h / 2 + 1);
+  }
+  ctx.fillStyle = '#f3f3f3'; ctx.fillRect(0, TOP, ROWHEAD, HEAD);
+  ctx.fillStyle = '#c8c8c8'; ctx.beginPath(); ctx.moveTo(ROWHEAD - 4, TOP + 6); ctx.lineTo(ROWHEAD - 4, TOP + HEAD - 4); ctx.lineTo(ROWHEAD - 14, TOP + HEAD - 4); ctx.fill();
+  ctx.restore();
+}
+
+// 棋盘底色：条件格式色阶。滑动的 90 ms 里画移动中的旧值，之后画新棋盘，合并格闪一下。
+function drawBoardFill(values) {
+  const sliding = !boss && anim && anim.t < SLIDE;
+  for (let i = 0; i < 16; i++) {
+    const rc = cellRect(i);
+    ctx.fillStyle = sliding || boss || !board[i] ? '#fff' : scaleColor(board[i]);
+    if (!sliding && !boss && i === anim?.spawned && anim.t < SLIDE + FADE) ctx.fillStyle = '#fff';
+    ctx.fillRect(rc.x, rc.y, rc.w, rc.h);
+  }
+}
+function drawBoardText(values) {
+  const z = view.zoom, font = `${(13 * z).toFixed(1)}px ${SANS}`;
+  ctx.font = font; ctx.textAlign = 'right';
+  if (!boss && anim && anim.t < SLIDE) {
+    const p = anim.t / SLIDE, e = p * (2 - p);
+    for (const { from, to } of anim.moves) {
+      const a = cellRect(from), b = cellRect(to), x = a.x + (b.x - a.x) * e, y = a.y + (b.y - a.y) * e, lv = anim.prev[from];
+      ctx.fillStyle = scaleColor(lv); ctx.fillRect(x + 1, y + 1, a.w - 1, a.h - 1);
+      ctx.fillStyle = '#222'; ctx.fillText(fmt(2 ** lv), x + a.w - 5 * z, y + a.h / 2 + 1);
+    }
+    return;
+  }
+  for (let i = 0; i < 16; i++) {
+    const rc = cellRect(i), v = values[i];
+    let color = v ? '#222' : '#7f7f7f';
+    if (!boss && i === anim?.spawned) {
+      const k = Math.max(0, Math.min(1, (anim.t - SLIDE) / FADE));
+      color = mix('#ffffff', '#222222', k);
+    }
+    ctx.fillStyle = color;
+    ctx.fillText(v ? fmt(v) : '-', rc.x + rc.w - (v ? 5 : 10) * z, rc.y + rc.h / 2 + 1);
+  }
+  if (!boss && anim && anim.merged.length) {
+    const k = 1 - (anim.t - SLIDE) / FLASH;
+    if (k > 0) for (const i of anim.merged) {
+      const rc = cellRect(i);
+      ctx.fillStyle = `rgba(33,115,70,${(0.22 * k).toFixed(3)})`; ctx.fillRect(rc.x, rc.y, rc.w, rc.h);
+      ctx.strokeStyle = `rgba(33,115,70,${k.toFixed(3)})`; ctx.lineWidth = 1.5; ctx.strokeRect(rc.x + 1.5, rc.y + 1.5, rc.w - 3, rc.h - 3);
+    }
+  }
+}
+
+function drawStatus() {
+  const W = view.w, by = view.h - BOTTOM;
+  ctx.fillStyle = '#f3f3f3'; ctx.fillRect(0, by, W, BOTTOM);
+  ctx.fillStyle = '#d4d4d4'; ctx.fillRect(0, by, W, 1);
+  text('◀  ▶', 8, by + 13, '#999', 'left', `10px ${SANS}`);
+  ['Q4测算', '合并记录', '明细', '⊕'].forEach((t, k) => {
+    const x = 40 + k * 76;
+    if (x > W - 30) return;
+    if (!k) { ctx.fillStyle = '#fff'; ctx.fillRect(x, by, 70, 26); ctx.fillStyle = GREEN; ctx.fillRect(x, by + 24, 70, 2); }
+    text(t, x + (k === 3 ? 10 : 35), by + 13, k ? '#555' : GREEN, k === 3 ? 'left' : 'center', `${k ? '' : '600 '}12px ${SANS}`);
+  });
+  ctx.fillStyle = GREEN; ctx.fillRect(0, by + 26, W, 24);
+  const sy = by + 38;
+  const zoomText = Math.round(view.zoom * 100) + '%';
+  text(zoomText, W - 12, sy, '#fff', 'right');
+  ctx.fillStyle = 'rgba(255,255,255,.7)'; ctx.fillRect(W - 140, sy, 80, 1); ctx.fillRect(W - 140 + 80 * (view.zoom - 0.6) / 0.9, sy - 5, 2, 10);
+  let left = '就绪';
+  if (!boss && !hasMoved && !dialog) left = '就绪    方向键 / 滑动开始 · Esc 隐藏';
+  ctx.font = `12px ${SANS}`;
+  const parts = [];
+  if (!boss) {
+    const vals = board.filter(Boolean).map(lv => 2 ** lv);
+    parts.push(`撤销 ${undoUsed ? 0 : 1}`);
+    parts.push(`平均值: ${(vals.reduce((a, b) => a + b, 0) / Math.max(1, vals.length)).toFixed(2)}`);
+    parts.push(`计数: ${vals.length}`);
+    parts.push(`最大值: ${fmt(Math.max(0, ...vals))}`);
+    parts.push(`求和: ${fmt(shownScore)}`);
+  }
+  // 窄屏时从左边丢弃统计项，求和永远保留。
+  const room = W - 170 - ctx.measureText(left).width - 24;
+  while (parts.length > 1 && ctx.measureText(parts.join('    ')).width > room) parts.shift();
+  if (parts.length === 1 && ctx.measureText(parts[0]).width > room) { left = '就绪'; }
+  text(left, 12, sy, '#fff');
+  if (parts.length) text(parts.join('    '), W - 160, sy, '#fff', 'right');
+}
+
+const DIALOGS = {
+  over: { icon: 'warn', lines: () => ['无法完成此操作。', `区域 C4:F7 中已没有可以合并的单元格（最大值 ${fmt(maxValue())}，累计核减 ${fmt(score)}）。`], buttons: [['确定', 'restart']] },
+  win: { icon: 'info', lines: () => ['C4:F7 中的值已达到 2,048。', '是否继续计算？选择“停止”将保存当前结果。'], buttons: [['继续(C)', 'continue'], ['停止(S)', 'stop']] },
+  saved: { icon: 'info', lines: () => ['计算已完成，结果已保存。', `累计核减 ${fmt(score)}，最大值 ${fmt(maxValue())}。`], buttons: [['确定', 'restart']] },
+};
+const maxValue = () => 2 ** Math.max(...board);
+function wrap(s, maxW) {
+  const out = [];
+  let line = '';
+  for (const ch of s) {
+    if (line && ctx.measureText(line + ch).width > maxW) { out.push(line); line = ''; }
+    line += ch;
+  }
+  if (line) out.push(line);
+  return out;
+}
+function drawDialog() {
+  const d = DIALOGS[dialog], W = view.w, H = view.h;
+  const w = Math.min(420, W - 24), textW = w - 32 - 46;
+  ctx.font = `13px ${SANS}`;
+  const lines = d.lines().flatMap(s => wrap(s, textW));
+  const h = 32 + 22 + Math.max(40, lines.length * 20) + 20 + 44;
+  const x = Math.round((W - w) / 2), y = Math.round(Math.max(TOP, (H - h) / 2));
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,.35)'; ctx.shadowBlur = 18; ctx.shadowOffsetY = 4;
+  ctx.fillStyle = '#fff'; ctx.fillRect(x, y, w, h);
+  ctx.restore();
+  ctx.strokeStyle = '#888'; ctx.lineWidth = 1; ctx.strokeRect(x + .5, y + .5, w - 1, h - 1);
+  text('Microsoft Excel', x + 14, y + 16, '#222');
+  text('✕', x + w - 18, y + 16, '#444', 'center');
+  const iy = y + 54, ix = x + 18;
+  if (d.icon === 'warn') {
+    ctx.fillStyle = '#f2c200'; ctx.beginPath(); ctx.moveTo(ix + 16, iy); ctx.lineTo(ix + 32, iy + 28); ctx.lineTo(ix, iy + 28); ctx.closePath(); ctx.fill();
+    text('!', ix + 16, iy + 18, '#222', 'center', `bold 16px ${SANS}`);
+  } else {
+    ctx.fillStyle = '#1e6fd9'; ctx.beginPath(); ctx.arc(ix + 16, iy + 14, 15, 0, Math.PI * 2); ctx.fill();
+    text('i', ix + 16, iy + 15, '#fff', 'center', `bold 17px Georgia, serif`);
+  }
+  lines.forEach((s, k) => text(s, x + 18 + 46, y + 56 + k * 20, '#222', 'left', `13px ${SANS}`));
+  const bw = 88, bh = 26, btnY = y + h - 16 - bh;
+  d.buttons.forEach(([label, act], k) => {
+    const bx = x + w - 16 - (d.buttons.length - k) * (bw + 8) + 8;
+    ctx.fillStyle = '#fdfdfd'; ctx.fillRect(bx, btnY, bw, bh);
+    ctx.strokeStyle = k === 0 ? GREEN : '#adadad'; ctx.lineWidth = k === 0 ? 2 : 1;
+    ctx.strokeRect(bx + (k ? .5 : 1), btnY + (k ? .5 : 1), bw - (k ? 1 : 2), bh - (k ? 1 : 2));
+    text(label, bx + bw / 2, btnY + bh / 2 + 1, '#222', 'center', `13px ${SANS}`);
+    ui.push({ x: bx, y: btnY, w: bw, h: bh, act });
+  });
+}
+
+function draw() {
+  ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
+  ctx.textBaseline = 'middle';
+  ui = [];
+  drawChrome();
+  drawSheet();
+  drawStatus();
+  if (dialog && !boss) drawDialog();
+}
+
+// ---------- 输入 ----------
+function act(name) {
+  if (boss) return;
+  if (name === 'new') startGame();
+  else if (name === 'undo') undo();
+  else if (name === 'restart' && over) startGame();
+  else if (name === 'continue') continueWork();
+  else if (name === 'stop') retire();
+}
+function clickAt(x, y) {
+  // 弹窗打开时只有弹窗按钮可点（模态）。
+  const hit = ui.filter(b => x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h);
+  const modal = dialog ? hit.filter(b => !['new', 'undo'].includes(b.act)) : hit;
+  if (modal.length) act(modal[modal.length - 1].act);
+}
+const DIRS = { ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right',
+  ArrowUp: 'up', KeyW: 'up', ArrowDown: 'down', KeyS: 'down' };
+function onKey(e) {
+  const mod = e.ctrlKey || e.metaKey;
+  if (e.code === 'Escape') { boss = !boss; e.preventDefault(); return; }
+  if (boss) return;
+  if (e.code === 'KeyM' && !mod) { muted = !muted; if (!muted) ensureAudio(); return; }
+  if (e.code === 'KeyZ' && !e.shiftKey && !e.altKey) { e.preventDefault(); undo(); return; }
+  if ((e.code === 'KeyN' && mod) || (e.code === 'KeyR' && !mod)) { e.preventDefault(); startGame(); return; }
+  if (dialog) {
+    const d = DIALOGS[dialog];
+    if (e.code === 'Enter' || e.code === 'Space' || e.code === 'NumpadEnter') { e.preventDefault(); act(d.buttons[0][1]); }
+    else if (dialog === 'win' && e.code === 'KeyC') act('continue');
+    else if (dialog === 'win' && e.code === 'KeyS') act('stop');
+    return;
+  }
+  if (DIRS[e.code] && !mod && !e.altKey) { e.preventDefault(); move(DIRS[e.code]); }
+}
+window.addEventListener('keydown', onKey);
+let swipe = null;
+cv.addEventListener('pointerdown', e => { swipe = { x: e.clientX, y: e.clientY }; });
+cv.addEventListener('pointerup', e => {
+  if (!swipe) return;
+  const dx = e.clientX - swipe.x, dy = e.clientY - swipe.y;
+  swipe = null;
+  if (Math.max(Math.abs(dx), Math.abs(dy)) <= 30) { clickAt(e.clientX, e.clientY); return; }
+  if (!boss && !dialog) move(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up'));
+});
+cv.addEventListener('pointercancel', () => { swipe = null; });
+window.addEventListener('blur', () => { swipe = null; });
+
+// ---------- 主循环 ----------
+let lastT = 0;
+function frame(now) {
+  const dt = lastT ? Math.min(0.1, (now - lastT) / 1000) : 0;
+  lastT = now;
+  update(dt);
+  draw();
+  requestAnimationFrame(frame);
+}
+
+// 主站在水合后才监听消息，单发的 ready 会丢；重复的 ready 主站会忽略。每次 ready 后跟一条 disguise。
+function announce() { emitMoYuFunEvent('ready'); emitMoYuFunDisguise('excel', TITLE); }
+announce();
+for (const ms of [500, 2000, 5000]) setTimeout(announce, ms);
+startGame();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
