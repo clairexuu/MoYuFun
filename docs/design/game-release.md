@@ -24,7 +24,7 @@ Read first: `DEV.md` §3–4 (deploy chain, local file ↔ R2 key mapping), `sup
 
 ## Out of scope
 
-Deleting games or versions, unlisting, editing catalog data without a release, CI/CD automation, licence checks, the stats feature (`docs/design/game-stats.md`, which extends `game.json` later).
+Deleting games or versions, editing catalog data without a release, CI/CD automation, licence checks, the stats feature (`docs/design/game-stats.md`, which extends `game.json` later).
 
 ## Game package contract
 
@@ -84,6 +84,7 @@ games/<slug>/
 pnpm game check <slug> <version>
 pnpm game publish <slug> <version> [--notes "<release notes>"] [--yes]
 pnpm game switch <slug> <version> [--yes]
+pnpm game unlist <slug> [--yes]
 pnpm game:local <same arguments>          # uses .env.publish.local
 ```
 
@@ -103,6 +104,8 @@ pnpm game:local <same arguments>          # uses .env.publish.local
 8. **Smoke test**: `GET ${SITE_URL}/play/<slug>` must return 200 and contain the new `entry_path`, retried 5 times 3 s apart. On failure it says the DB is already committed and exits non-zero.
 
 **`switch`**: confirms the version exists for the slug, `GET`s its entry from `GAMES_ORIGIN` (must be 200), confirms (D9), updates `current_version_id` and `updated_at`, then revalidates and smoke-tests as above. Uploads nothing, syncs nothing (D8).
+
+**`unlist`** (added with `docs/design/office-camouflage.md` D10): confirms the game exists, confirms (D9), sets `is_listed = false` and `updated_at = now()`, revalidates, then smoke-tests that `/play/<slug>` answers 404 (5 tries, 3 s apart; the static page regenerates on the request after revalidation). Nothing is deleted: versions, achievements and players' stats stay, and the next `publish` lists the game again.
 
 ## Code map
 

@@ -1,5 +1,7 @@
 # 夺鱼 (`fish-grab`)
 
+**Unlisted 2026-10-05** with `pnpm game unlist fish-grab` (owner's call when the site moved to office camouflage, `docs/design/office-camouflage.md`). Its files, versions, achievements and stats are kept; `pnpm game publish` lists it again.
+
 **Status:** Implemented locally 2026-09-30. Milestones: M1 ☑ · M2 ☑ · M3 ☑ (local; see notes). **Production publish pending** (`pnpm game publish fish-grab v1`, run by the owner).
 
 A 3v3 capture game built on 乱刃's combat: you and 2 AI allies fight 3 AI enemies over a golden fish in the middle of the arena, and carry it home to score. First team to 5 wins. The six slashes and their numbers are reused unchanged, so this is a new mode, not new combat. Single-player only, keyboard and mouse only.

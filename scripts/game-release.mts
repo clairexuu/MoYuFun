@@ -1,4 +1,4 @@
-// CLI: pnpm game <check|publish|switch> <slug> <version>. See docs/design/game-release.md.
+// CLI: pnpm game <check|publish|switch> <slug> <version> | pnpm game unlist <slug>. See docs/design/game-release.md.
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
@@ -23,9 +23,11 @@ const { values: flags, positionals } = parseArgs({
 });
 const [command, slug, version] = positionals;
 
-if (!["check", "publish", "switch"].includes(command) || !slug || !version) {
+const needsVersion = ["check", "publish", "switch"].includes(command);
+if (!(needsVersion || command === "unlist") || !slug || (needsVersion && !version)) {
   console.error(
-    "usage: pnpm game check|publish|switch <slug> <version> [--notes <text>] [--yes]",
+    "usage: pnpm game check|publish|switch <slug> <version> [--notes <text>] [--yes]\n" +
+      "       pnpm game unlist <slug> [--yes]",
   );
   process.exit(2);
 }
@@ -281,11 +283,51 @@ async function switchVersion(): Promise<void> {
   await revalidateAndSmoke(env);
 }
 
+// ---------- unlist ----------
+
+// Hides a game from the catalog and its pages (office-camouflage D10). Nothing is deleted;
+// a later publish lists it again.
+async function unlist(): Promise<void> {
+  const env = readEnv();
+  const sql = postgres(env.dbUrl, { max: 1, prepare: false, connect_timeout: 15 });
+  try {
+    const [game] = await sql`select is_listed from public.games where slug = ${slug}`;
+    if (!game) throw new Error(`${slug} is not a registered game`);
+    await confirm(env, `${slug}${game.is_listed ? "" : " (already unlisted)"}`);
+    await sql`update public.games set is_listed = false, updated_at = now() where slug = ${slug}`;
+    console.log(`unlisted ${slug}`);
+  } finally {
+    await sql.end();
+  }
+
+  const revalidate = await fetch(`${env.siteOrigin}/api/revalidate/games`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${env.revalidateSecret}` },
+  });
+  if (revalidate.status !== 200) {
+    throw new Error(`DB committed, but revalidate returned ${revalidate.status}; the catalog refreshes within 5 minutes`);
+  }
+  console.log("catalog cache revalidated");
+
+  // The static play page regenerates on the request after revalidation, so allow a few tries.
+  const playUrl = `${env.siteOrigin}/play/${slug}`;
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    const response = await fetch(playUrl, { cache: "no-store" });
+    if (response.status === 404) {
+      console.log(`smoke passed: ${playUrl} answers 404`);
+      return;
+    }
+    if (attempt < 5) await sleep(3000);
+  }
+  throw new Error(`DB committed, but ${playUrl} still answers; the catalog refreshes within 5 minutes`);
+}
+
 // ---------- main ----------
 
 try {
   if (command === "check") await check();
   else if (command === "publish") await publish();
+  else if (command === "unlist") await unlist();
   else await switchVersion();
 } catch (error) {
   console.error(`\nFAILED: ${error instanceof Error ? error.message : error}`);

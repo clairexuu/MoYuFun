@@ -1,5 +1,7 @@
 # 纸飞机邮差 (`paper-plane`)
 
+**Unlisted 2026-10-05** with `pnpm game unlist paper-plane` (owner's call when the site moved to office camouflage, `docs/design/office-camouflage.md`). Its files, versions, achievements and stats are kept; `pnpm game publish` lists it again.
+
 **Status:** Implemented and published to production 2026-10-02 (`pnpm game publish paper-plane v1`; the play page loads at www.moyufuns.com/play/paper-plane). Milestones: M1 ☑ · M2 ☑ · M3 ☑ (see notes).
 
 A one-button glide race. You are a paper airplane carrying letters over a rooftop town: hold to pitch the nose up, release to let it dip. Diving buys speed, climbing spends it, and chimney smoke lifts you back up. Fly through the zone above each mailbox to deliver, and reach the post office fast. A day is three routes in a row, each with medal times. Mouse, touch or Space, single-player.
