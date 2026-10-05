@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>典当登记台账_10月.xlsx - Excel</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #fff;
+    user-select: none; -webkit-user-select: none; }
+  #game { position: absolute; inset: 0; display: block; touch-action: none; outline: none; }
+</style>
+</head>
+<body>
+<canvas id="game" tabindex="0"></canvas>
+<script>
+'use strict';
+/* 当铺账房（dragon-pawn v2）：Excel 台账里的典当审计。设计文档：docs/games/dragon-pawn.md */
+
+// ---------- 常量 ----------
+const DAYS = 5, BACKLOG = 5, FINE = 30, CUT = 0.6, TARGET = 3000;
+const PLAN = [{ n: 10, gap: 4.5 }, { n: 12, gap: 4.8 }, { n: 13, gap: 4.8 }, { n: 14, gap: 4.6 }, { n: 15, gap: 4.4 }];
+const FIRST_ROW_AT = 3;   // 第 2 天起，开门 3 秒后才来第一位客人，留时间读新规则
+const END_WAIT = 0.8;     // 最后一行处理完，停 0.8 秒再切到对账
+const FAKE_RATE = [0.3, 0.33, 0.36, 0.38, 0.4], OVER_RATE = 0.35;
+const WORKSHOPS = ['炉心', '霜语', '月匠', '山根', '星斗', '龟甲'];
+const LOOKALIKE = { 炉: '护', 霜: '雷', 月: '用', 山: '出', 星: '昱', 龟: '电' };
+const MINES = ['赤岭', '青崖', '紫渊', '碧林', '白沙', '金谷'];
+const MATERIALS = { 青铜: 0.6, 银: 1, 黑铁: 1.2, 金: 1.5, 秘银: 2 };
+const TYPES = { 戒指: 80, 护符: 100, 酒杯: 120, 长剑: 160, 圆盾: 180, 王冠: 240 };
+const MOTTOS = ['百炼成锋', '寒光映雪', '清辉满庭', '稳如磐石', '斗转星移', '万古长存', '金石为开', '福寿绵长', '光照四方', '无往不利'];
+const TITLE = '典当登记台账_10月.xlsx - Excel';
+const BOSS_TITLE = '2026年度区域销售汇总_v3_终版.xlsx - Excel';
+const BEST_KEY = 'moyufun:dragon-pawn:best';
+
+// ---------- MoYuFun SDK v1 ----------
+const MOYUFUN_PARENT_ORIGIN = location.hostname === 'localhost'
+  ? 'http://localhost:3000'
+  : 'https://www.moyufuns.com';
+function emitMoYuFunEvent(type) {
+  if (window.parent === window) return;
+  window.parent.postMessage({ source: 'moyufun-game', version: 1, type }, MOYUFUN_PARENT_ORIGIN);
+}
+function emitMoYuFunAchievement(key) {
+  if (window.parent === window) return;
+  window.parent.postMessage({ source: 'moyufun-game', version: 1, type: 'achievement', key }, MOYUFUN_PARENT_ORIGIN);
+}
+// 战绩：每局结算时发送一次，在成就之后、end 之前；键和上限在 game.json 的 stats 中声明。
+function emitMoYuFunStats(stats) {
+  if (window.parent === window) return;
+  window.parent.postMessage({ source: 'moyufun-game', version: 1, type: 'stats', stats }, MOYUFUN_PARENT_ORIGIN);
+}
+// 伪装：每次 ready 之后、以及窗口标题变化时发送（office-camouflage D2）。
+function emitMoYuFunDisguise(app, title) {
+  if (window.parent === window) return;
+  window.parent.postMessage({ source: 'moyufun-game', version: 1, type: 'disguise', app, title }, MOYUFUN_PARENT_ORIGIN);
+}
+// 成就：每局每个 key 最多发送一次；结算时的成就必须在 end 之前发送。
+let roundAchievements = new Set();
+function unlockAchievement(key) {
+  if (roundAchievements.has(key)) return;
+  roundAchievements.add(key);
+  emitMoYuFunAchievement(key);
+}
+
+// ---------- 音频（默认关闭，M 切换） ----------
+let AC = null, master = null, muted = true;
+function ensureAudio() {
+  if (!AC) {
+    try {
+      AC = new (window.AudioContext || window.webkitAudioContext)();
+      master = AC.createGain(); master.gain.value = 0.15; master.connect(AC.destination);
+    } catch (err) { AC = null; }
+  }
+  if (AC && AC.state === 'suspended') AC.resume();
+}
+function tone(f0, f1, dur, type, vol) {
+  if (!AC || muted) return;
+  const t = AC.currentTime, o = AC.createOscillator(), g = AC.createGain();
+  o.type = type || 'sine';
+  o.frequency.setValueAtTime(Math.max(1, f0), t);
+  o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t + dur);
+  g.gain.setValueAtTime(vol || 1, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  o.connect(g); g.connect(master); o.start(t); o.stop(t + dur + 0.03);
+}
+
+// ---------- 随机 ----------
+function mulberry32(a) {
+  return function () {
+    a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+let rng = Math.random;   // 测试里换成 mulberry32(seed)
+function pick(a) { return a[Math.floor(rng() * a.length)]; }
+const round5 = x => Math.round(x / 5) * 5;
+
+// ---------- 规则（纯函数，不碰画布） ----------
+let closed = '月匠';   // 第 3 天起停业的工坊，每局随机
+function setValue(r) { r.value = Math.round(TYPES[r.type] * MATERIALS[r.material] / 10) * 10; }
+const RULES = [
+  { id: 1, day: 1, kind: 'fake', text: () => '印记 = 工坊的第一个字（炉心 → 炉）',
+    broken: r => r.mark !== r.workshop[0],
+    why: r => `印记「${r.mark}」≠ 工坊首字「${r.workshop[0]}」`,
+    forge(r, day) { r.mark = day >= 4 && rng() < 0.5 ? LOOKALIKE[r.workshop[0]] : pick(WORKSHOPS.filter(w => w !== r.workshop))[0]; } },
+  { id: 2, day: 1, kind: 'price', text: () => '要价 > 行情的一半 → 压价' },
+  { id: 3, day: 2, kind: 'fake', text: () => '宝石 = 矿脉的第一个字（赤岭 → 赤）',
+    broken: r => r.gem !== r.mine[0],
+    why: r => `宝石「${r.gem}」≠ 矿脉首字「${r.mine[0]}」`,
+    forge(r) { r.gem = pick(MINES.filter(m => m !== r.mine))[0]; } },
+  { id: 4, day: 2, kind: 'fake', text: () => '铭文必须是 4 个字',
+    broken: r => r.motto.length !== 4,
+    why: r => `铭文「${r.motto}」是 ${r.motto.length} 个字`,
+    forge(r) {
+      const i = Math.floor(rng() * 4);
+      r.motto = rng() < 0.5 ? r.motto.slice(0, i) + r.motto.slice(i + 1) : r.motto.slice(0, i) + pick(['之', '永', '大', '天']) + r.motto.slice(i);
+    } },
+  { id: 5, day: 3, kind: 'fake', text: () => `${closed}工坊已停业：它的货一律拒收`,
+    broken: r => r.workshop === closed,
+    why: () => `${closed}工坊已停业`,
+    forge(r) { r.workshop = closed; r.mark = closed[0]; } },
+  { id: 6, day: 3, kind: 'fake', text: () => '王冠只用金打造',
+    broken: r => r.type === '王冠' && r.material !== '金',
+    why: r => `王冠却是${r.material}的`,
+    forge(r) { r.type = '王冠'; r.material = pick(['青铜', '银', '黑铁', '秘银']); setValue(r); } },
+  { id: 7, day: 4, kind: 'price', text: () => '例外：秘银货要价 ≤ 行情七成 → 照收' },
+  { id: 8, day: 4, kind: 'fake', text: () => '青铜货的行情不会超过 200',
+    broken: r => r.material === '青铜' && r.value > 200,
+    why: r => `青铜货行情 ${r.value} > 200`,
+    forge(r) { r.material = '青铜'; r.value = 220 + 10 * Math.floor(rng() * 19); } },
+  { id: 9, day: 5, kind: 'fake', text: () => '金宝石不会镶在金器上',
+    broken: r => r.gem === '金' && r.material === '金',
+    why: () => '金宝石镶在了金器上',
+    forge(r) { r.mine = '金谷'; r.gem = '金'; r.material = '金'; setValue(r); } },
+];
+function rulesFor(day) { return RULES.filter(x => x.day <= day); }
+function priceLimit(r, rules) { return r.material === '秘银' && rules.some(x => x.id === 7) ? 0.7 : 0.5; }
+// 只看这一行和给定规则，得出应有的处理。
+function judge(r, rules) {
+  const broken = rules.filter(x => x.kind === 'fake' && x.broken(r)).map(x => x.id);
+  const limit = priceLimit(r, rules);
+  return { verdict: broken.length ? '拒' : r.ask > limit * r.value ? '压价' : '收', broken, limit };
+}
+// 生成一行：先做一件完全合规的真品，再按需要伪造或定价。
+// 当天规则与全部规则给出的判断必须一致，所以还没公布的规则永远不会冤枉玩家。
+function makeRow(day) {
+  const active = rulesFor(day);
+  for (;;) {
+    const r = { type: pick(Object.keys(TYPES)), workshop: pick(WORKSHOPS), mine: pick(MINES), motto: pick(MOTTOS) };
+    r.material = r.type === '王冠' ? '金' : pick(Object.keys(MATERIALS));
+    r.mark = r.workshop[0]; r.gem = r.mine[0]; setValue(r);
+    if (judge(r, RULES).broken.length) continue;
+    let want, ratio;
+    if (rng() < FAKE_RATE[day - 1]) {
+      want = '拒';
+      const pool = active.filter(x => x.kind === 'fake'), weights = pool.map(x => x.day === day ? 2 : 1);
+      let k = rng() * weights.reduce((a, b) => a + b, 0), i = 0;
+      while (k >= weights[i]) k -= weights[i++];
+      pool[i].forge(r, day);
+      r.planted = pool[i].id;
+      ratio = 0.45 + rng() * 0.5;
+    } else {
+      want = rng() < OVER_RATE ? '压价' : '收';
+      const limit = priceLimit(r, RULES);
+      ratio = want === '收' ? 0.25 + rng() * (limit - 0.31) : limit + 0.08 + rng() * (1.02 - limit);
+    }
+    r.ask = Math.max(5, round5(r.value * ratio));
+    const truth = judge(r, RULES), seen = judge(r, active);
+    if (truth.verdict !== want || seen.verdict !== want) continue;
+    // 要价离压价线至少差行情的 5%，一眼能看出高低
+    if (want !== '拒' && [truth.limit, seen.limit].some(l => Math.abs(r.ask - l * r.value) < 0.05 * r.value)) continue;
+    r.truth = want; r.broken = seen.broken; r.limit = seen.limit;
+    return r;
+  }
+}
+// 一个处理的结果：成交价、盈亏、错失（应得利润减去实得）。
+function counterPrice(r) { return round5(r.ask * CUT); }
+function outcome(r, d) {
+  const worth = r.truth === '拒' ? 0 : r.value;
+  if (d === '收') return { paid: r.ask, profit: worth - r.ask };
+  if (d === '压价') return r.truth === '收' ? { paid: 0, profit: 0, walked: true } : { paid: counterPrice(r), profit: worth - counterPrice(r) };
+  if (d === '拒') return { paid: 0, profit: 0 };
+  return { paid: 0, profit: -FINE };   // 超时
+}
+function settle(r, d) {
+  const got = outcome(r, d), best = outcome(r, r.truth).profit, kept = Math.max(got.profit, 0);
+  return { ...got, best, missed: d !== r.truth && best > kept ? best - kept : 0 };
+}
+
+// ---------- 局面 ----------
+let phase = 'day';        // 'day' 台账 | 'recon' 对账 | 'over' 月末对账
+let day = 1, rules = [], queue = [], rows = [], clock = 0, nextAt = 0, endWait = 0, selN = null;
+let started = false, paused = false, boss = false, scroll = 0, animT = 0, lastDecided = null;
+let total = 0, log = [], fakesCaught = 0, goodCounters = 0, best = null;
+try { const v = JSON.parse(localStorage.getItem(BEST_KEY)); best = Number.isFinite(v) ? v : null; } catch (err) { best = null; }
+
+function startRound() {
+  closed = pick(WORKSHOPS);
+  total = 0; log = []; fakesCaught = 0; goodCounters = 0; started = false; paused = false;
+  roundAchievements = new Set();
+  startDay(1);
+}
+function startDay(d) {
+  day = d; phase = 'day'; rules = rulesFor(d);
+  queue = Array.from({ length: PLAN[d - 1].n }, () => makeRow(d));
+  rows = []; clock = 0; endWait = 0; selN = null; scroll = 0; lastDecided = null;
+  nextAt = d === 1 ? 0 : FIRST_ROW_AT;
+  arrivals();
+}
+function pending() { return rows.filter(r => !r.decision); }
+function selected() { const p = pending(); return p.find(r => r.n === selN) || p[0] || null; }
+function arrivals() {
+  while (queue.length && clock >= nextAt) {
+    const r = queue.shift();
+    r.n = rows.length + 1; r.at = animT; r.decision = null;
+    rows.push(r);
+    nextAt += PLAN[day - 1].gap * (0.8 + 0.4 * rng());
+    tone(1320, 1320, 0.04, 'sine', 0.25);
+    const p = pending();
+    if (p.length > BACKLOG) decide(p[0], '超时');
+  }
+}
+// 处理一行。d 为 '收' | '压价' | '拒'，或积压溢出时的 '超时'。
+function decide(r, d) {
+  if (!r || r.decision || phase !== 'day') return false;
+  Object.assign(r, settle(r, d));
+  r.decision = d; r.decT = animT; lastDecided = r;
+  if (!started) { started = true; emitMoYuFunEvent('start'); }
+  if (selN === r.n) selN = null;
+  if (d === '超时') tone(180, 110, 0.25, 'triangle', 0.6);
+  else tone({ 收: 660, 压价: 520, 拒: 392 }[d], { 收: 660, 压价: 440, 拒: 330 }[d], 0.07, 'sine', 0.5);
+  return true;
+}
+function moveSel(dir) {
+  const p = pending(), cur = selected();
+  if (!cur) return;
+  const i = Math.max(0, Math.min(p.length - 1, p.indexOf(cur) + dir));
+  selN = p[i].n;
+}
+function update(dt) {
+  if (boss) return;
+  animT += dt;
+  if (phase !== 'day' || !started || paused) return;
+  clock += dt;
+  arrivals();
+  if (!queue.length && !pending().length) {
+    endWait += dt;
+    if (endWait >= END_WAIT) endDay();
+  }
+}
+function summarize(list) {
+  const s = { n: list.length, net: 0, missed: 0, correct: 0, fakes: 0, counters: 0, timeouts: 0 };
+  for (const r of list) {
+    s.net += r.profit; s.missed += r.missed;
+    if (r.decision === r.truth) s.correct++;
+    if (r.decision === '拒' && r.truth === '拒') s.fakes++;
+    if (r.decision === '压价' && r.truth === '压价') s.counters++;
+    if (r.decision === '超时') s.timeouts++;
+  }
+  return s;
+}
+function endDay() {
+  phase = 'recon'; endWait = 0; scroll = 0;
+  const s = summarize(rows);
+  log.push(s); total += s.net; fakesCaught += s.fakes; goodCounters += s.counters;
+  if (s.correct === s.n) unlockAchievement('clean_day');
+  if (fakesCaught >= 15) unlockAchievement('sharp_eye');
+  if (goodCounters >= 10) unlockAchievement('bargain');
+  tone(784, 784, 0.12, 'sine', 0.5); tone(1047, 1047, 0.25, 'sine', 0.4);
+  if (day === DAYS) finishRound();
+}
+function finishRound() {
+  phase = 'over';
+  unlockAchievement('full_month');
+  if (total >= TARGET) unlockAchievement('target');
+  if (log.every(s => s.correct === s.n)) unlockAchievement('perfect');
+  if (best === null || total > best) {
+    best = total;
+    try { localStorage.setItem(BEST_KEY, JSON.stringify(best)); } catch (err) { /* 存不了就算了 */ }
+  }
+  emitMoYuFunStats({ rounds: 1, wins: total >= TARGET ? 1 : 0, fakes: fakesCaught, profit: Math.max(0, Math.min(total, 50000)) });
+  emitMoYuFunEvent('end');
+}
+function nextDay() {
+  if (phase === 'recon') startDay(day + 1);
+  else if (phase === 'over') startRound();
+}
+function toggleBoss() {
+  boss = !boss;
+  emitMoYuFunDisguise('excel', boss ? BOSS_TITLE : TITLE);
+}
+
+// ---------- 输入 ----------
+const KEY_DECISION = { 1: '收', a: '收', A: '收', 2: '压价', s: '压价', S: '压价', 3: '拒', d: '拒', D: '拒' };
+function onKey(e) {
+  const k = e.key;
+  paused = false;
+  if (k === 'Escape') { e.preventDefault(); toggleBoss(); return; }
+  if (boss) return;
+  if (k === 'm' || k === 'M') { muted = !muted; if (!muted) { ensureAudio(); tone(880, 880, 0.06, 'sine', 0.4); } return; }
+  if (phase === 'day') {
+    if (KEY_DECISION[k]) { e.preventDefault(); decide(selected(), KEY_DECISION[k]); }
+    else if (k === 'ArrowUp' || k === 'ArrowDown') { e.preventDefault(); moveSel(k === 'ArrowUp' ? -1 : 1); }
+  } else {
+    if (k === 'Enter' || k === ' ') { e.preventDefault(); nextDay(); }
+    else if (k === 'ArrowUp' || k === 'ArrowDown') { e.preventDefault(); scroll = Math.max(0, scroll + (k === 'ArrowUp' ? -1 : 1)); }
+  }
+}
+// 点击：每次都用当前局面重新排版再命中，避免按旧画面点错行。
+function onPointer(x, y) {
+  paused = false;
+  if (boss) return;
+  const L = layout(currentModel()), lx = x / L.z, ly = (y - TOP) / L.z;
+  if (ly < CH_H || ly > L.lh) return;
+  const row = L.rows[Math.floor((ly - CH_H) / RH)];
+  if (!row || !row.r) return;
+  const c = L.xs.findIndex((cx, i) => lx >= cx && lx < cx + L.ws[i]);
+  if (phase === 'day') {
+    const r = row.r.row;
+    if (!r || r.decision) return;
+    if (c === 10) {
+      const off = lx - L.xs[10], chip = CHIPS.find(ch => off >= ch.x && off <= ch.x + ch.w);
+      if (chip) { decide(r, chip.d); return; }
+    }
+    selN = r.n;
+  } else if (row.r.link) nextDay();
+}
+
+// ---------- 视图 ----------
+const canvas = document.getElementById('game'), ctx = canvas.getContext('2d');
+const view = { w: 0, h: 0, dpr: 1 };
+function resize() {
+  view.dpr = window.devicePixelRatio || 1;
+  view.w = document.documentElement.clientWidth;
+  view.h = document.documentElement.clientHeight;
+  canvas.width = Math.round(view.w * view.dpr);
+  canvas.height = Math.round(view.h * view.dpr);
+  canvas.style.width = view.w + 'px';
+  canvas.style.height = view.h + 'px';
+}
+const SANS = '"DengXian", "等线", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif';
+const GREEN = '#217346', GRID = '#e1e1e1', HEADBG = '#f3f3f3';
+const GOOD = { bg: '#c6efce', fg: '#006100' }, BAD = { bg: '#ffc7ce', fg: '#9c0006' }, NEUTRAL = { bg: '#ffeb9c', fg: '#9c5700' };
+const TOP = 130, BOTTOM = 50, RH_W = 40, CH_H = 22, RH = 24;
+const CHIPS = [{ d: '收', k: '1', x: 4, w: 38 }, { d: '压价', k: '2', x: 46, w: 50 }, { d: '拒', k: '3', x: 100, w: 30 }];
+const LEDGER_COLS = [44, 56, 60, 60, 48, 84, 48, 56, 64, 64, 134];
+const LEDGER_HEAD = ['序号', '物品', '工坊', '矿脉', '印记', '铭文', '宝石', '材质', '行情', '要价', '处理'];
+const RECON_COLS = [44, 56, 72, 64, 72, 56, 72, 72, 300];
+const RECON_HEAD = ['序号', '物品', '处理', '成交价', '实情', '应为', '盈亏', '错失', '说明'];
+const DECISION_STYLE = { 收: GOOD, 压价: NEUTRAL, 拒: BAD, 超时: { bg: '#d9d9d9', fg: '#595959' } };
+const fmt = n => n.toLocaleString('en-US');
+const dateText = d => `10月${11 + d}日 周${'一二三四五'[d - 1]}`;
+function colName(i) { return i < 26 ? String.fromCharCode(65 + i) : 'A' + String.fromCharCode(39 + i); }
+function signed(n) { return n > 0 ? GOOD : n < 0 ? BAD : {}; }
+
+// 表格模型：frozen 为冻结行，body 为滚动行；每格 { t, al, b, size, fg, bg, span, chips, bar }。
+function ledgerModel() {
+  const span = LEDGER_COLS.length;
+  const dayLen = FIRST_ROW_AT + PLAN[day - 1].n * PLAN[day - 1].gap;
+  const mins = started ? Math.min(480, Math.floor(clock / dayLen * 480)) : 0;
+  const hhmm = `${String(9 + Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
+  const frozen = [
+    { cells: [{ t: `典当登记台账 · ${dateText(day)}`, b: 1, size: 15, span: 8 }, , , , , , , , { t: started ? `营业中 ${hhmm}` : '开门 09:00', al: 'r', fg: '#595959', span: 3 }] },
+    { cells: [{ t: '处理：1 收 · 2 压价（按要价六折还价）· 3 拒　　违反任一条规则 → 拒', fg: '#595959', span }] },
+  ];
+  for (const x of rules) {
+    const cells = [{ t: '规则' + x.id, fg: '#595959' }, { t: x.text(), span: 9 }];
+    if (x.day === day) cells[10] = { t: '今日新增', al: 'c', ...NEUTRAL };
+    frozen.push({ cells });
+  }
+  frozen.push({ cells: LEDGER_HEAD.map(t => ({ t, b: 1, al: 'c', bg: '#e2efda' })) });
+  const sel = phase === 'day' ? selected() : null;
+  const body = rows.map(r => {
+    const d = r.decision, st = DECISION_STYLE[d];
+    const k = !d ? { chips: true } : { t: d === '压价' ? (r.walked ? '压价 · 没谈成' : '压价 ' + fmt(r.paid)) : d === '收' ? '收 ' + fmt(r.paid) : d, al: 'c', ...st };
+    return { key: r.n, row: r, cells: [
+      { t: String(r.n).padStart(2, '0'), al: 'c', fg: '#595959' }, { t: r.type, al: 'c' }, { t: r.workshop, al: 'c' }, { t: r.mine, al: 'c' },
+      { t: r.mark, al: 'c' }, { t: r.motto, al: 'c' }, { t: r.gem, al: 'c' }, { t: r.material, al: 'c' },
+      { t: fmt(r.value), al: 'r' }, { t: fmt(r.ask), al: 'r' }, k] };
+  });
+  return { cols: LEDGER_COLS, frozen, body, anchor: 'bottom', selKey: sel ? sel.n : null, wide: true };
+}
+function reconNote(r) {
+  if (r.decision === '超时') return `客人等太久走了，赔偿 ${FINE}`;
+  if (r.truth === '拒') { const x = RULES.find(q => q.id === r.broken[0]); return `规则${x.id}：${x.why(r)}`; }
+  const lim = r.limit === 0.7 ? '七成' : '一半', cap = fmt(Math.round(r.value * r.limit));
+  if (r.truth === '压价') return `规则${r.limit === 0.7 ? 7 : 2}：要价 ${fmt(r.ask)} > 行情${lim} ${cap}`;
+  if (r.walked) return '要价本就公道，还价把客人气走了';
+  if (r.limit === 0.7 && r.ask > r.value / 2) return `规则7：秘银要价 ${fmt(r.ask)} ≤ 行情七成 ${cap}`;
+  return r.decision === '拒' ? '每条规则都符合，是真品' : '';
+}
+function reconModel() {
+  const s = log[log.length - 1], acc = s.n ? s.correct / s.n : 1;
+  const frozen = [
+    { cells: [{ t: `对账 · ${dateText(day)}`, b: 1, size: 15, span: 6 }] },
+    { cells: [, { t: '当日净利润', fg: '#595959', span: 2 }, , { t: '正确率', fg: '#595959', span: 2 }, , { t: '本月累计', fg: '#595959', span: 2 }, , { t: '月度目标', fg: '#595959' }] },
+    { cells: [, { t: fmt(s.net), al: 'r', b: 1, span: 2, ...signed(s.net) }, ,
+      { t: `${s.correct}/${s.n}（${Math.round(acc * 100)}%）`, al: 'r', span: 2, ...(acc >= 0.9 ? GOOD : acc >= 0.7 ? NEUTRAL : BAD) }, ,
+      { t: fmt(total), al: 'r', b: 1, span: 2, bar: Math.max(0, Math.min(1, total / TARGET)) }, , { t: fmt(TARGET), al: 'r' }] },
+    { cells: [] },
+    { cells: RECON_HEAD.map(t => ({ t, b: 1, al: 'c', bg: '#e2efda' })) },
+  ];
+  const body = rows.map(r => {
+    const wrong = r.decision !== r.truth;
+    return { cells: [
+      { t: String(r.n).padStart(2, '0'), al: 'c', fg: '#595959' }, { t: r.type, al: 'c' },
+      { t: r.decision, al: 'c', ...DECISION_STYLE[r.decision] }, { t: r.paid ? fmt(r.paid) : '', al: 'r' },
+      { t: r.truth === '拒' ? '赝品' : r.truth === '压价' ? '要价虚高' : '真品', al: 'c' },
+      { t: r.truth, al: 'c', b: wrong ? 1 : 0, fg: wrong ? '#9c0006' : '#222' },
+      { t: r.profit ? fmt(r.profit) : '0', al: 'r', ...signed(r.profit) },
+      { t: r.missed ? fmt(r.missed) : '', al: 'r', ...(r.missed ? NEUTRAL : {}) },
+      { t: reconNote(r), fg: '#595959' }] };
+  });
+  body.push({ cells: [{ t: '合计', b: 1 }, , , { t: fmt(rows.reduce((a, r) => a + r.paid, 0)), al: 'r', b: 1 }, , ,
+    { t: fmt(s.net), al: 'r', b: 1, ...signed(s.net) }, { t: s.missed ? fmt(s.missed) : '', al: 'r', b: 1 }] });
+  body.push({ cells: [] });
+  if (phase === 'over') {
+    const all = log.reduce((a, x) => ({ n: a.n + x.n, c: a.c + x.correct }), { n: 0, c: 0 });
+    body.push({ cells: [{ t: '本月合计', b: 1, span: 2 }, , { t: `净利润 ${fmt(total)}　·　五天正确率 ${Math.round(all.c / all.n * 100)}%　·　历史最佳 ${fmt(best)}`, b: 1, span: 7, ...(total >= TARGET ? GOOD : NEUTRAL) }] });
+    body.push({ cells: [] });
+    body.push({ key: 'link', link: true, cells: [{ t: '→ 新建下月台账（Enter）', fg: '#0563c1', u: 1, span: 6 }] });
+  } else {
+    body.push({ key: 'link', link: true, cells: [{ t: `→ 开始 ${dateText(day + 1)} 台账（Enter）`, fg: '#0563c1', u: 1, span: 6 }] });
+  }
+  return { cols: RECON_COLS, frozen, body, anchor: 'top', selKey: 'link', wide: false };
+}
+const REGIONS = ['华东', '华北', '华南', '西南', '西北', '东北', '华中', '海外', '线上', '渠道', '直营', '加盟', '大客户', '其他'];
+const MONTHS = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月', '合计'];
+function hash(x, y) { let h = x * 374761393 + y * 668265263; h = (h ^ (h >>> 13)) * 1274126177; return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
+function bossModel() {
+  const head = { cells: [{ t: '地区', b: 1 }, ...MONTHS.map(t => ({ t, b: 1, al: 'r' }))] };
+  const body = REGIONS.map((reg, y) => {
+    const v = MONTHS.slice(0, 12).map((m, x) => Math.round(800 + hash(x + 1, y + 1) * 9000));
+    return { cells: [{ t: reg }, ...[...v, v.reduce((a, b) => a + b, 0)].map(n => ({ t: fmt(n), al: 'r' }))] };
+  });
+  return { cols: [64, ...MONTHS.map(() => 72)], frozen: [head], body, anchor: 'top', selKey: null };
+}
+function currentModel() { return boss ? bossModel() : phase === 'day' ? ledgerModel() : reconModel(); }
+
+// 排版：缩放让列宽和至少 7 行流水放得下（像 Excel 的缩放），再算出可见的行。
+function layout(model) {
+  const sheetH = Math.max(60, view.h - TOP - BOTTOM);
+  const sumW = model.cols.reduce((a, b) => a + b, 0);
+  const need = model.frozen.length + (model.anchor === 'bottom' ? 7 : model.body.length + 1);
+  let z = Math.min(view.w / (RH_W + sumW + 12), sheetH / (CH_H + RH * need));
+  z = Math.max(0.45, Math.min(1.5, Math.floor(z * 20) / 20));
+  const lw = view.w / z, lh = sheetH / z;
+  const fit = Math.max(1, Math.floor((lh - CH_H) / RH) - model.frozen.length);
+  const maxStart = Math.max(0, model.body.length - fit);
+  if (model.anchor === 'top') scroll = Math.min(scroll, maxStart);
+  const start = model.anchor === 'bottom' ? maxStart : scroll;
+  const out = model.frozen.map((r, i) => ({ num: i + 1, r }));
+  const F = model.frozen.length, total = Math.ceil((lh - CH_H) / RH);
+  for (let i = 0; out.length < total; i++) out.push({ num: F + start + i + 1, r: model.body[start + i] || null });
+  const xs = [], ws = [];
+  for (let x = RH_W, i = 0; x < lw; i++) { const w = model.cols[i] || 72; xs.push(x); ws.push(w); x += w; }
+  return { z, lw, lh, rows: out, xs, ws, frozen: F };
+}
+
+// ---------- 绘制 ----------
+function text(s, x, y, size, color, align, weight) {
+  ctx.font = `${weight || 400} ${size}px ${SANS}`; ctx.fillStyle = color;
+  ctx.textAlign = align || 'left'; ctx.textBaseline = 'middle'; ctx.fillText(s, x, y);
+}
+function drawSheet(model, L) {
+  const z = L.z, colsN = model.cols.length;
+  ctx.save(); ctx.translate(0, TOP); ctx.scale(z, z);
+  ctx.beginPath(); ctx.rect(0, 0, L.lw, L.lh); ctx.clip();
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, L.lw, L.lh);
+  const selI = model.selKey == null ? -1 : L.rows.findIndex(x => x.r && x.r.key === model.selKey);
+  const lw1 = 1 / z;
+  // 网格线
+  ctx.strokeStyle = GRID; ctx.lineWidth = lw1; ctx.beginPath();
+  for (const x of L.xs) { ctx.moveTo(x, CH_H); ctx.lineTo(x, L.lh); }
+  for (let i = 0; i <= L.rows.length; i++) { const y = CH_H + i * RH; ctx.moveTo(RH_W, y); ctx.lineTo(L.lw, y); }
+  ctx.stroke();
+  // 单元格底色
+  L.rows.forEach((row, i) => {
+    if (!row.r) return;
+    const y = CH_H + i * RH, r = row.r.row;
+    if (r && animT - r.at < 0.6) { ctx.fillStyle = `rgba(198,239,206,${(1 - (animT - r.at) / 0.6).toFixed(2)})`; ctx.fillRect(RH_W, y, L.lw, RH); }
+    row.r.cells.forEach((cell, c) => {
+      if (!cell || c >= L.xs.length) return;
+      const x = L.xs[c], w = spanW(L, c, cell.span);
+      if (cell.bg || cell.span) { ctx.fillStyle = cell.bg || '#fff'; ctx.fillRect(x + lw1, y + lw1, w - lw1, RH - lw1); }
+      if (cell.bar != null) { ctx.fillStyle = '#9fd5ad'; ctx.fillRect(x + 2, y + 3, (w - 4) * cell.bar, RH - 6); }
+    });
+  });
+  if (selI >= 0 && model.wide) { ctx.fillStyle = 'rgba(0,0,0,0.05)'; ctx.fillRect(L.xs[0], CH_H + selI * RH, L.xs[colsN - 1] - L.xs[0], RH); }
+  // 文字
+  L.rows.forEach((row, i) => {
+    if (!row.r) return;
+    const y = CH_H + i * RH;
+    row.r.cells.forEach((cell, c) => {
+      if (!cell || c >= L.xs.length) return;
+      const x = L.xs[c], w = spanW(L, c, cell.span);
+      if (cell.chips) { drawChips(x, y); return; }
+      if (!cell.t) return;
+      ctx.save(); ctx.beginPath(); ctx.rect(x, y, w, RH); ctx.clip();
+      const tx = cell.al === 'c' ? x + w / 2 : cell.al === 'r' ? x + w - 5 : x + 5;
+      text(cell.t, tx, y + RH / 2 + 1, cell.size || 13, cell.fg || '#222', cell.al === 'c' ? 'center' : cell.al === 'r' ? 'right' : 'left', cell.b ? 600 : 400);
+      if (cell.u) { const tw = ctx.measureText(cell.t).width; ctx.fillRect(tx, y + RH / 2 + 8, tw, lw1); }
+      ctx.restore();
+    });
+  });
+  // 冻结窗格线
+  ctx.fillStyle = '#9e9e9e'; ctx.fillRect(0, CH_H + L.frozen * RH - lw1, L.lw, 1.5 * lw1);
+  // 列标、行号
+  const selCol = selI >= 0 && model.wide ? colsN - 1 : 0, selRow = selI >= 0 ? selI : 0;
+  ctx.fillStyle = HEADBG; ctx.fillRect(0, 0, L.lw, CH_H); ctx.fillRect(0, 0, RH_W, L.lh);
+  L.xs.forEach((x, i) => {
+    if (i === selCol) { ctx.fillStyle = '#d2d2d2'; ctx.fillRect(x, 0, L.ws[i], CH_H); ctx.fillStyle = GREEN; ctx.fillRect(x, CH_H - 2, L.ws[i], 2); }
+    text(colName(i), x + L.ws[i] / 2, CH_H / 2 + 1, 12, i === selCol ? GREEN : '#555', 'center');
+    ctx.fillStyle = '#d4d4d4'; ctx.fillRect(x, 0, lw1, CH_H);
+  });
+  L.rows.forEach((row, i) => {
+    const y = CH_H + i * RH;
+    if (i === selRow) { ctx.fillStyle = '#d2d2d2'; ctx.fillRect(0, y, RH_W, RH); ctx.fillStyle = GREEN; ctx.fillRect(RH_W - 2, y, 2, RH); }
+    text(String(row.num), RH_W / 2, y + RH / 2 + 1, 12, i === selRow ? GREEN : '#555', 'center');
+    ctx.fillStyle = '#d4d4d4'; ctx.fillRect(0, y, RH_W, lw1);
+  });
+  ctx.fillStyle = '#d4d4d4'; ctx.fillRect(0, CH_H - lw1, L.lw, lw1); ctx.fillRect(RH_W - lw1, 0, lw1, L.lh);
+  ctx.fillStyle = '#bdbdbd'; ctx.beginPath(); ctx.moveTo(RH_W - 4, CH_H - 4); ctx.lineTo(RH_W - 4, 6); ctx.lineTo(RH_W - 16, CH_H - 4); ctx.fill();
+  // 选中框：选中行整行 A:K，活动单元格是「处理」
+  ctx.strokeStyle = GREEN; ctx.lineWidth = 2 / z;
+  if (selI >= 0) {
+    const y = CH_H + selI * RH, x0 = L.xs[0], x1 = model.wide ? L.xs[colsN - 1] + L.ws[colsN - 1] : x0 + L.ws[0];
+    ctx.strokeRect(x0 + lw1, y + lw1, x1 - x0 - 2 * lw1, RH - 2 * lw1);
+    ctx.fillStyle = GREEN; ctx.fillRect(x1 - 3, y + RH - 3, 5, 5);
+  } else {
+    ctx.strokeRect(L.xs[0] + lw1, CH_H + lw1, L.ws[0] - 2 * lw1, RH - 2 * lw1);
+    ctx.fillStyle = GREEN; ctx.fillRect(L.xs[0] + L.ws[0] - 3, CH_H + RH - 3, 5, 5);
+  }
+  ctx.restore();
+}
+function spanW(L, c, span) { let w = 0; for (let i = c; i < c + (span || 1) && i < L.ws.length; i++) w += L.ws[i]; return w; }
+function drawChips(x, y) {
+  for (const ch of CHIPS) {
+    ctx.fillStyle = '#fafafa'; ctx.fillRect(x + ch.x, y + 3, ch.w, RH - 6);
+    ctx.strokeStyle = '#bdbdbd'; ctx.lineWidth = 1; ctx.strokeRect(x + ch.x + 0.5, y + 3.5, ch.w - 1, RH - 7);
+    text(`${ch.k} ${ch.d}`, x + ch.x + ch.w / 2, y + RH / 2 + 1, 12, '#333', 'center');
+  }
+}
+const RIBBON_TABS = ['文件', '开始', '插入', '页面布局', '公式', '数据', '审阅', '视图', '帮助'];
+const GROUPS = [['剪贴板', 3], ['字体', 8], ['对齐方式', 8], ['数字', 4], ['样式', 3], ['单元格', 3], ['编辑', 4]];
+function drawChrome(info) {
+  const W = view.w, H = view.h;
+  // 标题栏
+  ctx.fillStyle = GREEN; ctx.fillRect(0, 0, W, 32);
+  text('自动保存', 12, 16, 12, '#fff');
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.strokeRect(66.5, 10.5, 24, 12); ctx.fillStyle = '#fff'; ctx.fillRect(69, 13, 8, 8);
+  ctx.strokeRect(102.5, 9.5, 12, 13);
+  ctx.save(); ctx.beginPath(); ctx.rect(124, 0, Math.max(0, W - 280), 32); ctx.clip();
+  ctx.font = `400 12px ${SANS}`;
+  text(info.title, Math.max(W / 2, 124 + ctx.measureText(info.title).width / 2), 16, 12, '#fff', 'center'); ctx.restore();
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(W - 128, 16, 10, 1);
+  ctx.strokeRect(W - 82.5, 11.5, 10, 10);
+  ctx.beginPath(); ctx.moveTo(W - 36, 11); ctx.lineTo(W - 26, 21); ctx.moveTo(W - 26, 11); ctx.lineTo(W - 36, 21); ctx.stroke();
+  // 功能区
+  ctx.fillStyle = HEADBG; ctx.fillRect(0, 32, W, 68);
+  RIBBON_TABS.forEach((t, i) => {
+    text(t, 14 + i * 60, 45, 12, i === 1 ? GREEN : '#444', 'left', i === 1 ? 600 : 400);
+    if (i === 1) { ctx.fillStyle = GREEN; ctx.fillRect(14, 55, 24, 2); }
+  });
+  let gx = 10;
+  for (const [label, n] of GROUPS) {
+    const cols = Math.ceil(n / 2), gw = Math.max(cols * 20 + 8, label.length * 12 + 8);
+    for (let i = 0; i < n; i++) { ctx.fillStyle = '#d0d0d0'; ctx.fillRect(gx + 4 + Math.floor(i / 2) * 20, 62 + (i % 2) * 17, 14, 13); }
+    text(label, gx + gw / 2, 94, 10, '#777', 'center');
+    gx += gw; ctx.fillStyle = '#dcdcdc'; ctx.fillRect(gx, 62, 1, 36); gx += 8;
+  }
+  // 编辑栏
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 100, W, 30);
+  ctx.strokeStyle = '#d4d4d4'; ctx.strokeRect(6.5, 103.5, 80, 22); ctx.strokeRect(118.5, 103.5, Math.max(10, W - 125), 22);
+  text(info.nameBox, 12, 115, 12, '#222');
+  text('fx', 100, 115, 12, '#777', 'center', 600);
+  ctx.save(); ctx.beginPath(); ctx.rect(120, 104, Math.max(0, W - 128), 21); ctx.clip();
+  text(info.formula, 126, 115, 12, '#222'); ctx.restore();
+  ctx.fillStyle = '#d4d4d4'; ctx.fillRect(0, 129, W, 1);
+  // 工作表标签 + 状态栏
+  const by = H - BOTTOM;
+  ctx.fillStyle = HEADBG; ctx.fillRect(0, by, W, BOTTOM);
+  ctx.fillStyle = '#d4d4d4'; ctx.fillRect(0, by, W, 1);
+  text('◀  ▶', 10, by + 13, 10, '#999');
+  let tx = 46;
+  info.tabs.forEach((t, i) => {
+    const tw = t.length * 13 + 26;
+    if (i === info.active) { ctx.fillStyle = '#fff'; ctx.fillRect(tx, by, tw, 26); ctx.fillStyle = GREEN; ctx.fillRect(tx, by + 24, tw, 2); }
+    text(t, tx + tw / 2, by + 13, 12, i === info.active ? GREEN : '#555', 'center', i === info.active ? 600 : 400);
+    tx += tw + 2;
+  });
+  ctx.fillStyle = GREEN; ctx.fillRect(0, H - 24, W, 24);
+  ctx.save(); ctx.beginPath(); ctx.rect(0, H - 24, Math.max(120, W - 360), 24); ctx.clip();
+  text(info.left, 12, H - 12, 12, '#fff'); ctx.restore();
+  text(info.right, W - 158, H - 12, 12, '#fff', 'right');
+  ctx.fillStyle = '#fff'; ctx.fillRect(W - 136, H - 12, 70, 1); ctx.fillRect(W - 102, H - 17, 2, 10);
+  text('−', W - 144, H - 12, 12, '#fff', 'center'); text('+', W - 58, H - 12, 12, '#fff', 'center');
+  text(info.zoom, W - 12, H - 12, 12, '#fff', 'right');
+}
+function chromeInfo(L) {
+  const zoom = Math.round(L.z * 100) + '%';
+  if (boss) return { title: BOSS_TITLE, tabs: ['汇总', '明细', 'Q3对账', '+'], active: 0, nameBox: 'A1', formula: '地区', left: '就绪', right: '', zoom };
+  if (phase !== 'day') {
+    const link = L.rows.find(x => x.r && x.r.key === 'link'), linkNum = link ? link.num : 1;
+    return { title: TITLE, tabs: ['台账', '对账', '+'], active: 1, nameBox: 'A' + linkNum,
+      formula: `=HYPERLINK("#台账!A1","${phase === 'over' ? '新建下月台账' : '开始 ' + dateText(day + 1)}")`,
+      left: phase === 'over' ? '就绪　　按 Enter 新建下月台账' : '就绪　　按 Enter 进入下一天',
+      right: `计数: ${rows.length}    求和: ${fmt(log[log.length - 1].net)}`, zoom };
+  }
+  const sel = selected(), p = pending().length, paid = rows.reduce((a, r) => a + (r.paid || 0), 0);
+  const selRow = sel ? L.rows.find(x => x.r && x.r.key === sel.n) : null, num = selRow ? selRow.num : L.frozen + 1;
+  const recent = lastDecided && animT - lastDecided.decT < 1.2 ? lastDecided : null;
+  const recentRow = recent ? L.rows.find(x => x.r && x.r.key === recent.n) : null;
+  const formula = recent ? `=${recent.decision}(J${recentRow ? recentRow.num : L.frozen + recent.n})    → ${recent.decision === '超时' ? '-' + FINE : fmt(recent.paid)}` : sel ? `=审核(A${num}:J${num})` : '';
+  const left = paused ? '就绪　　已暂停，点表格或按任意键继续'
+    : !started ? '就绪　　1 收 · 2 压价 · 3 拒 · ↑↓ 选行 · Esc 隐藏 · M 声音'
+    : `就绪　　待处理 ${p}/${BACKLOG}${p >= BACKLOG - 1 ? '　再多客人就要走了' : ''}`;
+  const n = rows.filter(r => r.decision).length;
+  return { title: TITLE, tabs: ['台账', '对账', '+'], active: 0, nameBox: sel ? 'K' + num : 'A1', formula, left,
+    right: `平均值: ${n ? fmt(Math.round(paid / n)) : 0}    计数: ${n}    求和: ${fmt(paid)}`, zoom };
+}
+function draw() {
+  ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
+  const model = currentModel(), L = layout(model);
+  drawSheet(model, L);
+  drawChrome(chromeInfo(L));
+}
+
+// ---------- 启动 ----------
+canvas.addEventListener('pointerdown', e => { canvas.focus(); onPointer(e.clientX, e.clientY); });
+canvas.addEventListener('wheel', e => { if (phase !== 'day' && !boss) { scroll = Math.max(0, scroll + Math.sign(e.deltaY)); e.preventDefault(); } }, { passive: false });
+window.addEventListener('keydown', onKey);
+window.addEventListener('blur', () => { if (started && phase === 'day') paused = true; });
+window.addEventListener('resize', resize);
+resize();
+startRound();
+let last = 0;
+function frame(now) {
+  const dt = last ? Math.min(0.1, (now - last) / 1000) : 0;
+  last = now;
+  update(dt); draw();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+// 主站在水合后才监听消息，单发的 ready 可能丢；重复的 ready 主站会忽略。每个 ready 后跟一条 disguise。
+function announce() { emitMoYuFunEvent('ready'); emitMoYuFunDisguise('excel', boss ? BOSS_TITLE : TITLE); }
+announce();
+for (const ms of [500, 2000, 5000]) setTimeout(announce, ms);
+</script>
+</body>
+</html>

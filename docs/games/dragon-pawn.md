@@ -1,32 +1,40 @@
-# 龙的当铺 (`dragon-pawn`)
+# 当铺账房 (`dragon-pawn`)
 
-**Status:** Implemented and published to production 2026-10-02 (`pnpm game publish dragon-pawn v1`; the play page loads at www.moyufuns.com/play/dragon-pawn). Milestones: M1 ☑ · M2 ☑ · M3 ☑ (see notes).
+**Status:** v2 (当铺账房) implemented and published to production 2026-10-05 (`pnpm game publish dragon-pawn v2`; www.moyufuns.com/play/dragon-pawn). Milestones: M1 ☑ · M2 ☑ · M3 ☑ (see notes).
 
-A management and appraisal game. You are a dragon running a pawnshop at the mouth of a dungeon. Heroes pawn treasures for gold before they descend. Check each treasure against the 鉴定手册 to catch forgeries, then haggle over the loan. Survivors repay with interest, except forgers you failed to catch, who abscond. The dead forfeit their pledge to your hoard, and a fake is worth nothing. Fill the hoard to 1000 金 by the end of day 7. Mouse or touch, single-player, about 8 minutes.
+A fast audit game disguised as an Excel ledger. The player is the clerk (账房) of the pawnshop at the dungeon mouth. Each customer is a new row at the bottom of `典当登记台账_10月.xlsx`: item, workshop, mine, mark, motto, gem, material, market value and asking price. The audit rules sit in a frozen header above the ledger and grow by one or two each day. The player marks each row 收 (accept), 拒 (reject) or 压价 (counter) before the backlog overflows. At day end a 对账 sheet shows what every decision earned or lost and why. Five days, about 5–6 minutes. The score is 净利润 (net profit). Keyboard, mouse or touch, single-player.
 
-Read first: `docs/design/game-release.md` (package contract, `check`, `publish`), `docs/design/game-stats.md` → Protocol, `docs/design/accounts-achievements.md` → Game protocol, `games/slash/v4/index.html` (SDK block, `resize()`, audio helpers), `games/slash/v4/test_headless.js` (stub pattern).
+Read first: `docs/design/office-camouflage.md` (D2 `disguise`, D6 conventions, D7 Excel chrome, D8 colours, D9 no logos), `docs/design/game-release.md` (package contract, `check`), `docs/design/game-stats.md` → Protocol, `docs/design/accounts-achievements.md` → Game protocol, `games/prototype-skins/index.html` variant C (the chrome this game refines), `games/tile-stack/v1/` (SDK block, `resize()`, test stub pattern).
+
+## Why v2 (what v1 was)
+
+v1, 龙的当铺, was a portrait 540 × 960 shop scene: a dragon pawnbroker inspected a drawn treasure part by part with a loupe, cross-checked it against a four-tab 鉴定手册 (6 workshops × mark, motto, materials; 5 mines × gem colours), confronted forgers, haggled with a slider, and gambled on heroes dying in the dungeon over 7 days. Playtesting said it was boring: appraising meant slowly cross-checking a manual like homework, and the treasure art and emoji heroes were the cute look the site has moved away from.
+
+v2 keeps the world (workshops, mines, marks, mottos, gems, materials, item types) and drops everything else. Every fact the player needs is in the row or in a one-line rule above it, so a check takes a glance instead of a manual lookup. The pressure comes from rows arriving, not from reading. The game is renamed **当铺账房** because the player is no longer a dragon haggling over one treasure; they are a clerk working down a ledger, and a catalog name that describes an office job fits the disguised games next to it. The slug stays `dragon-pawn` so v1's players, stats and achievements stay attached.
 
 ## Decisions
 
 | # | Decision | Why |
 | --- | --- | --- |
-| D1 | One file, `games/dragon-pawn/v1/index.html`, vanilla JS, no dependencies. The UI is DOM, with one `<canvas>` for the treasure drawing. Copy from 摸了个鱼 v1 only the SDK block, `resize()` (with `document.documentElement.clientWidth/Height`) and the audio helper `tone`. | The game is mostly text: the manual, the claim card, dialogue and buttons. DOM gives wrapping text, `<input type="range">` for the offer and native buttons. Only the treasure needs drawing. |
-| D2 | The logical stage is a 540 × 960 portrait `#stage` div. `resize()` sets `transform: scale(s)` with `s = min(cw / 540, ch / 960)` and centres it. | One layout for phones and desktop iframes, as in 摸了个鱼. |
-| D3 | Treasures come from fixed manual tables. `buildItem(spec)` computes `flaws = findFlaws(item)`, and `fake = flaws.length > 0`. The generator plants 1–2 flaws in a fake by breaking a table rule, and the test checks that `findFlaws` finds exactly the planted parts. | Forgery is defined by the manual, so every fake is provable from the manual and no genuine item has a flaw, by construction and by test. |
-| D4 | The hero's claim (type, workshop, mine) is taken as true. Flaws are the four physical parts that can contradict it: 印记 (mark), 铭文 (inscription), 宝石 (gem colour) and 材质 (material). Weight is not used. | Each check is one table lookup, so it fits an 11-second customer. Weight would need arithmetic against a per-type table. Material colour stands in for "weight/colour". |
-| D5 | Marking parts is private. `指出疑点` (once per hero) confronts the hero with the marks. If any mark hits a real flaw, the hero is 露馅: the ask and floor drop to 40%. If every mark is wrong, the hero is 冒犯: patience −1 and the ask goes up 10%. | Catching a fake is a negotiation weapon, not only a reason to refuse. A false accusation costs something, so guessing does not pay. |
-| D6 | Negotiation: the hero has a hidden `ask`, a `floor = ask × 0.8` and `patience` 1–3, all set by mood. Offers below the ask either insult (< 50% of the ask, patience −2) or draw a counter (patience −1, the ask moves halfway to the offer, never below the floor). Patience ≤ 0 means the hero walks away. | Three moods give readable tells (dialogue and a face) for a hidden number, with just three rules. |
-| D7 | Every loan resolves at the same day's night. A surviving hero with a genuine item, or with a fake you caught (露馅), repays `round(loan × 1.5)` and takes the item back. A surviving forger you did **not** catch absconds: no repayment, and the fake goes with them. A dead hero forfeits the item to the hoard at its `listValue` if genuine, or 0 if fake. | An uncaught fake loses the whole loan whatever happens, so skipping appraisal is ruinous. A caught forger knows the dragon knows and pays up, so 露馅's 40% ask makes a cheap loan to a strong forger a small, safe profit. That is the payoff for confronting rather than just refusing. |
-| D8 | Survival is `p = clamp(0.30 + 0.06 × level + 0.07 × gear − 0.05 × (day − 1), 0.08, 0.92)`. The player sees only the level and gear icons, and the manual's rough table. | "Shown loosely". It also creates the dragon's grim strategy: lend big to the weak. |
-| D9 | A day is 6 heroes or a 70 s candle, whichever ends first. When the candle burns out, the current hero still finishes and the queue goes home. Nights are click-to-continue and untimed. | 7 days × ≤ 70 s ≈ 8 minutes of play, with time pressure on reading the manual. |
-| D10 | Start gold is 800. Rent is 30 per day, paid when the day opens; if gold < 30 then, the round is lost (`bust`). The round is won if the hoard is ≥ 1000 at the end of day 7. These were tuned with a throwaway simulation of the bots in *Headless test* (1000 seeds): the expert wins about 66% of rounds and the naive bot (never inspects) about 4%. | Gold is the budget that becomes hoard through deaths. With D7, every uncaught fake burns its whole loan, and fakes rise to half the customers by day 6, so a shop that never inspects goes bust in about 78% of rounds. Without the abscond rule the naive bot won 45%, which made appraisal optional. |
-| D11 | Randomness goes through `rng()` (default `Math.random`, seeded `mulberry32` in tests). Logic functions never touch the DOM; `render()` reads state. Time moves only through `update(dt)`. | Headless tests drive the whole game. |
-| D12 | `ready` is sent on load and again at 0.5, 2 and 5 s. `start` is sent when the player presses `开张` (the round's first real action). | The lost-`ready` fix from 升官记 D8. |
-| D13 | Input is Pointer Events and buttons. The keyboard adds `1`–`4` to inspect a part, `X` to toggle the inspected part's mark, `←`/`→` to change the offer by 5 (`Shift` for 50), `Enter` to offer, `B` for the manual and `M` to mute. | Everything works by touch; keys speed up experienced players. |
+| D1 | One file, `games/dragon-pawn/v2/index.html`, vanilla JS, one full-window `<canvas>`. The Excel chrome is drawn as in the prototype (variant C): green title bar, ribbon, name box + `fx`, column letters and row numbers on `#f3f3f3`, gridlines `#e1e1e1`, sheet tabs, green status bar. | office-camouflage D1/D7. Canvas keeps the grid pixel-exact at any size; the prototype is the approved look. |
+| D2 | The sheet is a model (`ledgerModel`, `reconModel`, `bossModel`) of frozen rows, body rows and cells. `layout(model)` computes zoom and visible rows; `drawSheet` draws it and `onPointer` hit-tests by calling `layout(currentModel())` again. | One code path for drawing and clicking means a click always hits what is on screen now (the stale-hit-test bug from earlier games). |
+| D3 | Zoom `z = min(width fit, height fit for frozen rows + 7 body rows)`, floored to 5 %, clamped to 45–150 %, shown as the status bar's zoom %. The chrome is never scaled. | The disguise fills any iframe like a real window; only the cells scale, the way Excel zoom does. |
+| D4 | Rules are pure predicates on a row (`RULES`, `judge`). 9 rules arrive over 5 days: 2, +2, +2, +2, +1. Each compares two cells of the row, checks one cell against a constant, or is a one-cell condition. | Each rule must be checkable in about 2 seconds from the row alone; the challenge is the growing list and the pace, not lookup. |
+| D5 | `makeRow(day)` builds a fully genuine row, then either forges it (breaking one active rule, chosen with weight 2 for today's new rules and 1 for older ones) or prices it fair or high. The row is kept only if `judge(row, today's rules)` and `judge(row, all rules)` agree with the intended class, and a fair or high ask is at least 5 % of the value away from the counter line. | Rules not yet announced can never make the player wrong (e.g. the closed workshop never appears before day 3, and 秘银 items never sit in the 50–70 % band before rule 7). The 5 % gap keeps the price check a glance. New rules get exercised the day they appear. |
+| D6 | Decisions resolve immediately to money (`settle`): 收 pays the ask; 压价 pays `round5(ask × 0.6)`, except that a fair-priced customer walks away (no deal); 拒 pays nothing. A genuine item is worth its 行情; a fake is worth 0. Profit = worth − paid. | Three choices with distinct payoffs: accepting an overpriced item still earns a little or loses, countering a fair one loses the deal, any deal on a fake loses money. The rule-following choice is always the best one. |
+| D7 | Outcomes are hidden until the day's 对账 sheet, except that a walked-away counter shows `压价 · 没谈成` in the ledger. | The brief: wrong calls show up at night. A walk-away is what the clerk would see anyway. |
+| D8 | Pace: day n has `PLAN[n].n` rows (10, 12, 13, 14, 15) arriving every `gap × U(0.8, 1.2)` seconds (gap 4.5, 4.8, 4.8, 4.6, 4.4). Day 1's first row is waiting on the first frame; from day 2 the first row comes 3 s after the day opens. When more than 5 rows are pending, the oldest one times out (`超时`, −30). | About 290 s of shop time plus reading the 对账 sheets, so 5–6 minutes. The headless test shows a 3.5 s-per-row player never times out and an 8 s-per-row player does. |
+| D9 | The clock does not run until the first decision (which sends `start`), while the boss screen is up, while the 对账 sheet is shown, or while the window is blurred (`paused`; any key or click resumes). | No title screen (office-camouflage D6): the first frame is the ledger with one row and a status-bar hint, and nothing happens until the player acts. Leaving the window must not cost rows. |
+| D10 | Score is `total` = sum of profits over 5 days. The monthly target is 3,000 (stat `wins`, achievement `target`). Simulation through the real code (300 seeds): a perfect rule-follower averages ~4,400; one that picks a wrong answer on 10 % of rows ~3,700, on 20 % ~3,000, on 30 % ~2,300; one that only ever learns day 1's two rules ~2,600. Accept-everything averages about −180 and random about −320. | The target sits where a careful player usually makes it and a player who stops learning rules usually does not. Every seed has a different closed workshop and rows, and the best total is kept, so there is a reason to replay. |
+| D11 | Esc is the boss key: the screen becomes `2026年度区域销售汇总_v3_终版.xlsx` (a static region × month sheet with real row totals), time freezes, input other than Esc is ignored, and `disguise` is re-sent with that title. Esc again restores both. | office-camouflage D2 and D6. The tab title follows the window title. |
+| D12 | `ready` on load and at 0.5, 2 and 5 s, each followed by `emitMoYuFunDisguise('excel', title)`. | office-camouflage D2; the lost-`ready` fix from 升官记. |
+| D13 | Sound is off until `M`. Sounds are short sine tones: a faint tick when a row arrives, a click per decision (pitch per choice), a low thud on a timeout, two notes at day end. | office-camouflage D6. |
+| D14 | Randomness goes through `rng()` (default `Math.random`, `mulberry32(seed)` in tests). Logic never touches the canvas; time moves only through `update(dt)`. | Headless tests and bots drive the whole month. |
+| D15 | The best `total` is kept in `localStorage` under `moyufun:dragon-pawn:best` (reads and writes wrapped in `try`). | A personal best on the month summary; storage failure just hides nothing important. |
 
 ## Out of scope
 
-Buying or selling items outright, upgrading the shop, loans longer than one day, multiple target levels or endless mode, weight scales, saving between page loads, leaderboards, cross-round achievements.
+Negotiation beyond one fixed counter, per-customer patience timers, hiding outcomes inside the ledger with a separate "submit day" step, user-chosen difficulty, a VS Code skin, mobile-specific layout (on a phone the sheet zooms down to 45 % and is small), cross-round achievements, carrying money between rounds.
 
 ## Architecture
 
@@ -35,9 +43,10 @@ Buying or selling items outright, upgrading the shop, loans longer than one day,
 ```text
 games/dragon-pawn/
   game.json
-  v1/index.html
-  v1/test_headless.js
-  v1/README.md
+  v1/…                 immutable, published
+  v2/index.html
+  v2/test_headless.js
+  v2/README.md
 ```
 
 `game.json`:
@@ -45,306 +54,173 @@ games/dragon-pawn/
 ```json
 {
   "slug": "dragon-pawn",
-  "name": "龙的当铺",
-  "shortDescription": "开在地牢门口的龙之当铺：验宝、砍价、等勇者回不来。",
-  "description": "勇者们下地牢前，会把宝物押给你换金币。对照鉴定手册查看印记、铭文、宝石和材质，揪出赝品，再跟勇者讨价还价。活着回来的连本带利赎回，没被识破的骗子却会卷款溜走，回不来的宝物就归你的宝库。七天后宝库价值达到 1000 金即可获胜。",
-  "tags": ["经营", "鉴定", "单人"],
+  "name": "当铺账房",
+  "shortDescription": "一张典当登记台账：照着表头的规则，一行行收、拒、压价。",
+  "description": "你是地牢门口那家当铺的账房。客人一个接一个来押宝物，每位都是台账底部新的一行：物品、工坊、矿脉、印记、铭文、宝石、材质、行情、要价。表头冻结着审核规则，每天多一两条。赝品总会在这一行里露出破绽，要价太高就压价，公道的照收。客人不停地来，待处理超过 5 行最早的那位就会走。每晚的对账表会算清每一笔：赚了多少、收了赝品亏了多少、错过了多少。五天一个月，净利润达到 3,000 即完成指标。整个界面就是一张 Excel 表格，Esc 一键切到销售汇总。",
+  "tags": ["审计", "伪装", "单人"],
   "controls": [
-    { "input": "鼠标 / 触摸", "action": "点击宝物部位查看、标记疑点、出价" },
-    { "input": "1–4 / X", "action": "查看部位 / 标记疑点" },
-    { "input": "← → / Enter", "action": "调整出价 / 出价" },
-    { "input": "B", "action": "打开或合上鉴定手册" },
-    { "input": "M", "action": "静音或恢复声音" }
+    { "input": "1 / A", "action": "收" },
+    { "input": "2 / S", "action": "压价（按要价六折还价）" },
+    { "input": "3 / D", "action": "拒" },
+    { "input": "↑ ↓", "action": "选择待处理的行" },
+    { "input": "鼠标 / 触摸", "action": "点处理格里的按钮，或点一行选中它" },
+    { "input": "Enter", "action": "对账后进入下一天" },
+    { "input": "Esc", "action": "老板键：切到销售汇总表并暂停" },
+    { "input": "M", "action": "打开或关闭声音（默认关）" }
   ],
-  "cover": { "symbol": "当", "eyebrow": "PAWNSHOP", "accent": "#e0a020", "accentSecondary": "#c0392b" },
+  "cover": { "symbol": "账", "eyebrow": "LEDGER", "accent": "#217346", "accentSecondary": "#ffeb9c" },
   "sortOrder": 110,
   "achievements": [
-    { "key": "sharp_eye", "name": "火眼金睛", "description": "一局内当面识破 5 件赝品。", "symbol": "眼" },
-    { "key": "first_hoard", "name": "第一件宝贝", "description": "第一件真品落入宝库。", "symbol": "库" },
-    { "key": "big_haul", "name": "稀世珍宝", "description": "一件价值 300 金以上的真品入库。", "symbol": "珍" },
-    { "key": "loan_shark", "name": "龙息高利", "description": "一局内累计收取利息 500 金。", "symbol": "利" },
-    { "key": "win", "name": "富可敌国", "description": "第七天结束时宝库价值达到 1000 金。", "symbol": "富" },
-    { "key": "clean_win", "name": "明察秋毫", "description": "获胜，且从未冤枉好人、宝库里没有赝品。", "symbol": "察" }
+    { "key": "full_month", "name": "月末结账", "description": "做完五天的台账。", "symbol": "月" },
+    { "key": "sharp_eye", "name": "火眼金睛", "description": "一局内拒收 15 件赝品。", "symbol": "眼" },
+    { "key": "bargain", "name": "砍价高手", "description": "一局内对要价虚高的真品压价成交 10 次。", "symbol": "砍" },
+    { "key": "clean_day", "name": "账实相符", "description": "某一天的处理全部正确。", "symbol": "符" },
+    { "key": "target", "name": "完成指标", "description": "一个月净利润达到 3,000。", "symbol": "标" },
+    { "key": "perfect", "name": "零差错", "description": "五天的处理全部正确。", "symbol": "零" }
   ],
   "stats": [
     { "key": "rounds", "name": "对局", "maxPerRound": 1 },
-    { "key": "wins", "name": "获胜", "maxPerRound": 1 },
-    { "key": "fakes", "name": "识破赝品", "maxPerRound": 42 },
-    { "key": "hoard", "name": "宝库价值", "maxPerRound": 20000 }
+    { "key": "wins", "name": "完成指标", "maxPerRound": 1 },
+    { "key": "fakes", "name": "拒收赝品", "maxPerRound": 64 },
+    { "key": "profit", "name": "净利润", "maxPerRound": 50000 }
   ]
 }
 ```
 
-### The manual (鉴定手册)
+Publishing v2 retires v1's achievements `first_hoard`, `big_haul`, `loan_shark`, `win`, `clean_win` and the stat `hoard` (kept, not deleted). `sharp_eye`, `rounds`, `wins` and `fakes` keep their keys with v2 meanings. Gotcha: `pnpm game check dragon-pawn v1` now fails D11 of game-release (v1's runtime does not contain the new keys); that is expected, since v1 is already published and `switch` does not re-check.
 
-`WORKSHOPS` (6). A genuine item from a workshop has its mark, its exact motto and one of its materials.
+### World data
 
-| workshop | mark | lookalike mark | motto | motto typos (one per fake) | materials |
-| --- | --- | --- | --- | --- | --- |
-| 炉心 | 炎 | 焱 | 百炼成锋 | 炼→练, 锋→峰 | 黑铁, 金 |
-| 霜语 | 霜 | 雷 | 寒光映雪 | 光→先, 映→英 | 银, 秘银 |
-| 月匠 | 月 | 丹 | 清辉满庭 | 辉→挥, 庭→延 | 银, 金 |
-| 山根 | 山 | 出 | 稳如磐石 | 磐→盘, 石→右 | 黑铁, 青铜 |
-| 星斗 | 斗 | 斤 | 斗转星移 | 转→专, 移→侈 | 秘银, 金 |
-| 龟甲 | 龟 | 黾 | 万古长存 | 古→吉, 存→在 | 青铜, 银 |
-
-`MINES` (5). A genuine gem has one of its mine's colours.
-
-| mine | colours |
+| table | values |
 | --- | --- |
-| 熔喉 | 赤, 琥 |
-| 霜岭 | 苍, 素 |
-| 幽林 | 碧, 苍 |
-| 暮渊 | 紫, 赤 |
-| 晨崖 | 琥, 素 |
+| `WORKSHOPS` | 炉心 霜语 月匠 山根 星斗 龟甲 (mark = first character) |
+| `LOOKALIKE` (rule 1 forgeries from day 4, 50 %) | 炉→护, 霜→雷, 月→用, 山→出, 星→昱, 龟→电 |
+| `MINES` | 赤岭 青崖 紫渊 碧林 白沙 金谷 (gem = first character) |
+| `MATERIALS` (value multiplier) | 青铜 0.6, 银 1, 黑铁 1.2, 金 1.5, 秘银 2 |
+| `TYPES` (base value) | 戒指 80, 护符 100, 酒杯 120, 长剑 160, 圆盾 180, 王冠 240 |
+| `MOTTOS` | 百炼成锋 寒光映雪 清辉满庭 稳如磐石 斗转星移 万古长存 金石为开 福寿绵长 光照四方 无往不利 |
 
-`GEMS`: 赤 `#d23c3c`, 琥 `#e0a020`, 苍 `#3a6fd8`, 碧 `#2fa86a`, 紫 `#8e44ad`, 素 `#eceef4`. The loupe always names the colour (`宝石：苍色`), so the check does not depend on colour vision.
+`行情 = round10(base × multiplier)`, so 50–480. `closed` (the workshop of rule 5) is picked per round.
 
-`MATERIALS`: 青铜 ×0.6 `#b08d57`, 银 ×1.0 `#c0c6cc`, 黑铁 ×1.2 `#4a4e57`, 金 ×1.5 `#e8c04a`, 秘银 ×2.0 `#9fe3ee`.
+### Rules
 
-`TYPES` (base value): 戒指 80, 护符 100, 酒杯 120, 长剑 160, 圆盾 180, 王冠 240. `listValue = round(base × multiplier / 10) × 10`, so 50–480 金.
+| id | day | text (shown in the header) | broken when | forgery |
+| --- | --- | --- | --- | --- |
+| 1 | 1 | `印记 = 工坊的第一个字（炉心 → 炉）` | mark ≠ workshop[0] | another workshop's first character; from day 4, half are lookalikes |
+| 2 | 1 | `要价 > 行情的一半 → 压价` | (price) | — |
+| 3 | 2 | `宝石 = 矿脉的第一个字（赤岭 → 赤）` | gem ≠ mine[0] | another mine's first character |
+| 4 | 2 | `铭文必须是 4 个字` | motto length ≠ 4 | drop one character, or insert one of 之 永 大 天 |
+| 5 | 3 | `{closed}工坊已停业：它的货一律拒收` | workshop = closed | workshop and mark set to the closed one |
+| 6 | 3 | `王冠只用金打造` | 王冠 and material ≠ 金 | 王冠 in 青铜/银/黑铁/秘银 |
+| 7 | 4 | `例外：秘银货要价 ≤ 行情七成 → 照收` | (price: limit 0.7 for 秘银) | — |
+| 8 | 4 | `青铜货的行情不会超过 200` | 青铜 and 行情 > 200 | 青铜 with 行情 220–400 (genuine 青铜 tops out at 110) |
+| 9 | 5 | `金宝石不会镶在金器上` | gem 金 and material 金 | mine 金谷, gem 金, material 金 |
 
-### Items
+`judge(row, rules)` → `{ verdict, broken, limit }`: `拒` if any fake rule is broken, else `压价` if `ask > limit × 行情` (limit 0.7 for 秘银 once rule 7 is active, else 0.5), else `收`.
 
-`buildItem({ type, workshop, mine, material, gem, mark, motto })` returns the spec plus `listValue`, `flaws` and `fake`. `findFlaws(item)` returns, in the order `['mark', 'motto', 'gem', 'material']`, every part where:
-- `mark`: `mark !== WORKSHOPS[workshop].mark`
-- `motto`: `motto !== WORKSHOPS[workshop].motto`
-- `gem`: `gem` is not in `MINES[mine].colours`
-- `material`: `material` is not in `WORKSHOPS[workshop].materials`
+`makeRow(day)`: genuine base (type, workshop, mine, motto uniform; 王冠 is always 金; mark and gem derived), retried until it breaks no rule. Then with `FAKE_RATE = [0.30, 0.33, 0.36, 0.38, 0.40]` it is forged and asks `U(0.45, 0.95) × 行情`; otherwise it is high-priced with probability 0.35 (`U(limit + 0.08, 1.10)`) or fair (`U(0.25, limit − 0.06)`), asks rounded to 5, limit from all rules. Kept per D5.
 
-`makeItem(day)`:
-1. Pick the type, workshop and mine uniformly, then a genuine material, gem, mark and motto.
-2. The item is fake with probability `FAKE_RATE[day − 1]`, where `FAKE_RATE = [0.25, 0.30, 0.35, 0.40, 0.45, 0.50, 0.50]`. A fake has 2 flaws with probability 0.4 on days 1–3 and 0.2 on days 4–7, otherwise 1. The flawed parts are picked uniformly from the four.
-3. Plant each flaw:
-   - **mark:** the lookalike (50%) or another workshop's mark (50%).
-   - **motto:** one of the workshop's two typos.
-   - **gem:** a colour not in the mine's list.
-   - **material:** a material not in the workshop's list.
-4. Return `buildItem(…)` with `planted` (the parts chosen in step 2) attached.
+### Money
 
-### Heroes
+| truth \ decision | 收 | 压价 | 拒 | 超时 |
+| --- | --- | --- | --- | --- |
+| 收 (fair genuine) | 行情 − ask | 0, walked | 0 | −30 |
+| 压价 (high genuine) | 行情 − ask | 行情 − counter | 0 | −30 |
+| 拒 (fake) | −ask | −counter | 0 | −30 |
 
-`makeHero(day)` returns `{ name, avatar, level, gear, mood, item, ask, floor, patience, p, line }`:
-- `name` comes from 艾琳 阿岗 小葵 铁头 莫老三 白鸦 菲奥 大熊 青禾 罗兰 小满 石锤, and `avatar` from 🧝 🧙 🤺 🥷 🧔 🧚.
-- `level` is 1–10 and `gear` is 0–3, both uniform. Gear shows as that many of ⚔️ 🛡️ 🧪.
-- `mood` depends on the item. A fake's hero is 急 50%, 稳 30%, 傲 20%. A genuine item's hero is 急 25%, 稳 45%, 傲 30%. This is a soft tell, not proof.
-
-| mood | face | ask / listValue | patience |
-| --- | --- | --- | --- |
-| 急 | 😰 | uniform 0.45–0.60 | 3 |
-| 稳 | 🙂 | uniform 0.60–0.75 | 2 |
-| 傲 | 😤 | uniform 0.75–0.90 | 1 |
-
-`ask` is rounded to 5, and `floor = round5(ask × 0.8)`.
-
-The claim card reads `{type} · {workshop}工坊 · {mine}宝石 · 行情 {listValue} 金`. The opening line is `这是{workshop}工坊打的{type}，镶的是{mine}的宝石。` followed by the first mood line.
-
-Dialogue (`{A}` is the current ask; pick between `/` options with `rng`):
-
-| event | 急 | 稳 | 傲 |
-| --- | --- | --- | --- |
-| open | 求求你，我急着下去救人！ / 随便给点就行，地牢里等不了。 | 按行情来，公道就好。 / 这件东西跟了我好些年。 | 这可是传家宝，你最好识货。 / 别跟我讨价还价，龙。 |
-| counter | 再加点吧，{A} 金，就 {A}！ | {A} 金，不能再少了。 | {A} 金，看你面子。 |
-| insulted | 这……也太少了吧！ | 你这是在开玩笑。 | 你在侮辱我的家族！ |
-| deal | 成交！你是好龙！ | 合作愉快。 | 哼，算你有眼光。 |
-| walk | 算了，我去别处想办法…… | 看来谈不拢，告辞。 | 不识货的蜥蜴！ |
-
-These lines are the same for every mood:
-- 露馅: `呃……被你看出来了。{A} 金你要不要？`
-- 冒犯: `你说我的宝贝是假的？！`
-- refused by the player: `哼，不收拉倒。`
-
-### Rules and numbers
-
-| constant | value |
-| --- | --- |
-| `START_GOLD` | 800 |
-| `RENT` | 30 per day |
-| `INTEREST` | 0.5 (repay `round(loan × 1.5)`) |
-| `HEROES_PER_DAY` | 6 |
-| `DAY_SECONDS` | 70 |
-| `HOARD_TARGET` | 1000 |
-| `DAYS` | 7 |
-| offer range | 5 to `min(gold, listValue)`, step 5 |
-
-`offer(amount)`, with `A = hero.ask`:
-1. If `amount ≥ A`: a deal at `amount`.
-2. Else if `amount < 0.5 × A`: `patience −= 2` and the result is `insulted` (the ask is unchanged).
-3. Else: `patience −= 1`, `A = max(floor, round5((A + amount) / 2))`, and the result is `counter`.
-4. If `patience ≤ 0` after step 2 or 3, the result is `walked` instead.
-
-`acceptCounter()` makes a deal at the current ask, after any counter, insult or 露馅 (*changed in M1*: 露馅 added). It throws if the ask is above gold. A deal subtracts the loan from gold and adds `{ hero, loan, caught }` to `loans`, where `caught` is true if this hero was 露馅.
-
-`confront()` requires at least one mark and works once per hero:
-- **露馅 (`caught`):** some mark is in `item.flaws`. The ask and floor become `round5(x × 0.4)`, the item shows a red `赝品` stamp, and `fakesCaught++`. False marks alongside a real hit are ignored.
-- **冒犯 (`offended`):** no mark is a real flaw. `falseAccusations++`, `patience −= 1` (it may walk), and the ask becomes `min(listValue, round5(ask × 1.1))`.
-
-`endDay()`: for each loan, if `rng() < p` the hero survives. A survivor whose item is genuine or `caught` repays: `gold += round(loan × 1.5)` and `interest += round(loan × 0.5)`. An uncaught fake's survivor absconds and pays nothing. Otherwise the item goes to `hoard` with value `fake ? 0 : listValue`, and a fake sets `fakeInHoard = true`.
-
-### Treasure drawing
-
-The canvas is 360 × 360 logical, at 70–430 × 230–590 on the stage. Each type is a filled silhouette in its material colour, with a darker outline and a white gradient sheen. The gem is a faceted circle (r 16) in its colour. The mark is the character at 14 px in a small square seal. The motto is its four characters at 8 px, so it is unreadable without the loupe. Hotspots are circles of r 30. *Changed in M1:* material also has a hotspot, on a bare patch of the body, so every part can be inspected by tapping the treasure; before, material was reachable only through its button.
-
-| type | silhouette | gem | motto | mark | material |
-| --- | --- | --- | --- | --- | --- |
-| 戒指 | ring, centre (180,200), R 90, band 26 | (180,105) | (180,288) | (100,200) | (262,200) |
-| 护符 | teardrop pendant on a chain from the top | (180,190) | (180,280) | (180,120) | (236,228) |
-| 酒杯 | bowl, stem, foot | (180,150) | (180,95) | (180,320) | (112,100) |
-| 长剑 | vertical blade, guard at y 262, pommel at y 335 | (180,262) | (180,150) | (180,335) | (180,72) |
-| 圆盾 | disc, centre (180,180), R 140 | (180,180) | (180,300) | (180,70) | (84,190) |
-| 王冠 | band y 230–290, five spikes up to y 110 | (180,200) | (180,265) | (100,265) | (262,262) |
-
-Clicking a hotspot, or one of the four part buttons under the canvas (`印记` `铭文` `宝石` `材质`), calls `inspect(part)`. A clicked hotspot shows a 160 px loupe: the region drawn at 2.5× with `drawImage` from the item canvas. Under it is a label: `印记：「焱」`, `铭文：百炼成峰`, `宝石：苍色` or `材质：青铜` (with a swatch). The label has a `标为疑点` / `取消疑点` toggle. A marked part's button and hotspot get a red ring.
+`counter = round5(ask × 0.6)`. `best` is the profit of the right decision; `missed = best − max(profit, 0)` when the decision was wrong and that is positive.
 
 ### Screens
 
-- **Start:** the title `龙的当铺`, the subtitle `地牢门口，只收宝贝，不问来路`, and three rule lines:
-  - `对照鉴定手册，找出赝品的破绽`
-  - `出价放贷，勇者活着回来连本带利还钱，没识破的骗子一去不回`
-  - `回不来的，宝物归你。七天内宝库攒满 1000 金`
+All screens are one Excel window titled `典当登记台账_10月.xlsx - Excel`.
 
-  Then a `开张` button.
-- **Top bar (0–60):** `第 N / 7 天`, a candle bar for the time left, `💰 gold`, `💎 hoard / 1000`, `📖 手册` and `🔊`.
-- **Hero (60–220):** avatar at 72 px, `name Lv.N`, gear icons, mood face, and a speech bubble. The claim card is under the bubble. A hero walks in 1 s after the previous one leaves, with a bell sound.
-- **Treasure (230–640):** the canvas, the part buttons, and the loupe label.
-- **Deal (650–940):** the offer slider with `出价 N 金`. Buttons: `出价`, `接受 A 金` (only after a counter, insult or 露馅; *changed in M1*: 露馅 added, since its line asks `{A} 金你要不要？`), `指出疑点（n）` (disabled with no marks, or after use), `拒绝`. Under them: `今日已押 k 件 · 剩余顾客 m`.
-- **Manual drawer:** covers the stage, with tabs `工坊` (the workshop table: mark, motto, materials), `矿脉` (mines with colour swatches and names), `材质` (colours and multipliers, plus type base values) and `冒险者`. The last tab reads: `Lv1–3：多半回不来` / `Lv4–7：五五开` / `Lv8–10：大多能回来` / `每件装备多一分把握` / `地牢一天比一天深` / `没被识破的骗子，活着也不会回来还钱`. Close with `合上`. The candle keeps burning while it is open.
-- **Night:** `第 N 天 · 夜`, one row per loan, then `💰 gold · 💎 hoard` and a `天亮了` button (`结算` after day 7). Rows:
-  - `{avatar} {name} 回来了，还款 {repay} 金（利息 {int}）`
-  - `🏃 {name} 活着出来了，却带着赝品溜了！{loan} 金打了水漂`
-  - `💀 {name} 没能回来。{type}入库，价值 {listValue} 金`
-  - `💀 {name} 没能回来。{type}入库……是赝品，一文不值`
-  - With no loans: `今晚没有放出去的贷款。`
-- **End:** each has a `再开一家` button.
-  - Win: `富可敌国`, then `七天里收下 N 件宝物，总值 V 金。`
-  - `bust`: `关门大吉`, then `金币付不起地牢管理费（30 金），当铺开不下去了。`
-  - Short: `龙心不足`, then `宝库只有 V / 1000 金。`
-
-Sounds through `tone`: a bell when a hero enters, a two-note coin clink on a deal, a low thud on a refusal or walk-away, a rising sting on 露馅, a gong at night, and an arpeggio on a win.
+- **台账 sheet (day).** Row 1: `典当登记台账 · 10月12日 周一` (days are 10月12–16日, 周一–周五) and, on the right, `开门 09:00` before the first action, then `营业中 hh:mm` (09:00–17:00 mapped onto the day). Row 2: `处理：1 收 · 2 压价（按要价六折还价）· 3 拒　　违反任一条规则 → 拒`. Then one row per active rule, `规则N` + text, with a `今日新增` cell in neutral yellow on the day it arrives. Then the column header row (`序号 物品 工坊 矿脉 印记 铭文 宝石 材质 行情 要价 处理`, light green), then the frozen-pane line. Below, the ledger rows, scrolled so the newest is at the bottom; row numbers jump like a frozen sheet. A pending row's 处理 cell holds three buttons `1 收` `2 压价` `3 拒`; a decided one shows `收 120` (green), `压价 72` / `压价 · 没谈成` (yellow), `拒` (red) or `超时` (grey). The selected pending row has a green range border and a grey tint; its row number and column K are highlighted; the name box shows `K{row}` and the formula bar `=审核(A{row}:J{row})`, or for 1.2 s after a decision `=收(J{row})    → 120`. A new row flashes light green for 0.6 s.
+- **Status bar.** Left: before the first action `就绪　　1 收 · 2 压价 · 3 拒 · ↑↓ 选行 · Esc 隐藏 · M 声音`; during the day `就绪　　待处理 n/5`, plus `　再多客人就要走了` at 4 or 5; when blurred `就绪　　已暂停，点表格或按任意键继续`. Right: `平均值 / 计数 / 求和` of today's paid amounts, the zoom slider and zoom %.
+- **对账 sheet (night).** The `对账` tab becomes active. Row 1 `对账 · 10月12日 周一`; rows 2–3 KPIs: 当日净利润 (green/red), 正确率 `13/15（87%）` (green ≥ 90 %, yellow ≥ 70 %, red below), 本月累计 with a data bar towards the target, 月度目标 `3,000`. Header `序号 物品 处理 成交价 实情 应为 盈亏 错失 说明`, then one row per customer: 实情 is 真品 / 赝品 / 要价虚高, 应为 is bold red when the decision was wrong, 盈亏 green/red, 错失 yellow, 说明 names the rule (`规则3：宝石「紫」≠ 矿脉首字「赤」`, `规则2：要价 190 > 行情一半 95`, `规则7：秘银要价 150 ≤ 行情七成 168`, `要价本就公道，还价把客人气走了`, `每条规则都符合，是真品`, `客人等太久走了，赔偿 30`). A 合计 row, then a hyperlink cell `→ 开始 10月13日 周二 台账（Enter）`, selected, with `=HYPERLINK(…)` in the formula bar. Status: `就绪　　按 Enter 进入下一天`. ↑/↓ or the wheel scroll when it does not fit.
+- **月末 (after day 5).** The same sheet plus `本月合计  净利润 N　·　五天正确率 P%　·　历史最佳 B` (green if the target was met, else yellow) and `→ 新建下月台账（Enter）`, which starts a new round with a fresh seed.
+- **Boss screen.** See D11; tabs `汇总 明细 Q3对账 +`, status `就绪`.
 
 ### Functions
 
-- `mulberry32(seed)`, `rng`, `round5(x)`
-- `buildItem(spec)`, `findFlaws(item)`, `makeItem(day)`, `makeHero(day)`
-- `startRound()`: resets the state and `roundAchievements`, sends `start`, then calls `startDay(1)`.
-- `startDay(n)`: if `gold < RENT`, calls `finishRound('bust')`. Otherwise pays the rent, makes 6 heroes, sets `candle = DAY_SECONDS` and calls `nextHero()`.
-- `inspect(part)`, `toggleMark(part)`
-- `confront()` → `'caught' | 'offended' | 'walked'`
-- `offer(amount)` → `'deal' | 'counter' | 'insulted' | 'walked'`. Throws on an amount outside the range.
-- `acceptCounter()`, `refuse()`
-- `heroDone()`: after a deal, walk-away or refusal. Calls `nextHero()`, or `endDay()` if the queue is empty or the candle is out.
-- `update(dt)`: during `phase === 'day'`, `candle = max(0, candle − dt)`. Also advances animation timers.
-- `endDay()` → the night report. Sets `phase = 'night'`.
-- `nextDay()`: calls `finishRound(hoardValue() >= HOARD_TARGET ? 'win' : 'short')` after day 7, else `startDay(day + 1)`.
-- `finishRound(reason)`: achievements, then `stats`, then `end`. Sets `phase = 'over'`.
-- `hoardValue()`, `render()`
+- `mulberry32(seed)`, `rng`, `pick(a)`, `round5(x)`, `setValue(row)`
+- `rulesFor(day)`, `priceLimit(row, rules)`, `judge(row, rules)`, `makeRow(day)`
+- `counterPrice(row)`, `outcome(row, d)`, `settle(row, d)` → `{ paid, profit, walked?, best, missed }`
+- `startRound()`: picks `closed`, resets totals and `roundAchievements`, `startDay(1)`. Does not send `start`.
+- `startDay(d)`: makes the day's rows, resets the clock, and lets due rows arrive (day 1's first row at once).
+- `arrivals()`: moves due rows from `queue` to `rows`; times out the oldest pending row when more than `BACKLOG` are pending.
+- `decide(row, d)`: settles one pending row; the first call in a round sends `start`. `selected()`, `pending()`, `moveSel(dir)`.
+- `update(dt)`: animation time always (except in boss mode); clock, arrivals and the end-of-day wait only while playing. Calls `endDay()` 0.8 s after the last row is decided.
+- `endDay()`: summary into `log`, totals, day-end achievements, then `finishRound()` after day 5.
+- `finishRound()`: month achievements, best score, `stats`, `end`; `phase = 'over'`.
+- `nextDay()`, `toggleBoss()`, `onKey(e)`, `onPointer(x, y)`
+- `ledgerModel()`, `reconModel()`, `bossModel()`, `currentModel()`, `layout(model)`, `drawSheet(model, L)`, `drawChrome(info)`, `chromeInfo(L)`, `draw()`, `resize()`
 
 ### Achievements
 
-Emitted through `unlockAchievement(key)`: once per round, before `stats`/`end`.
+Through `unlockAchievement(key)`: once per round, before `stats`/`end`.
 
 | key | Trigger |
 | --- | --- |
-| `sharp_eye` | In `confront()`, when `fakesCaught` reaches 5. |
-| `first_hoard` | In `endDay()`, when a genuine item enters the hoard. |
-| `big_haul` | In `endDay()`, when a genuine item with `listValue ≥ 300` enters the hoard. |
-| `loan_shark` | In `endDay()`, after repayments, when `interest ≥ 500`. |
-| `win` | In `finishRound('win')`. |
-| `clean_win` | In `finishRound('win')`, with `falseAccusations === 0` and `!fakeInHoard`. |
+| `clean_day` | `endDay()`: every row of the day decided correctly (no timeouts). |
+| `sharp_eye` | `endDay()`: fakes rejected this round reach 15. |
+| `bargain` | `endDay()`: correct counters (压价 on a high-priced genuine item) this round reach 10. |
+| `full_month` | `finishRound()`. |
+| `target` | `finishRound()`: `total ≥ 3000`. |
+| `perfect` | `finishRound()`: every day was a `clean_day`. |
 
-In `endDay()`, forfeits are processed before repayments, in loan order, and send `first_hoard` before `big_haul`.
+Order within `endDay()`: `clean_day`, `sharp_eye`, `bargain`; then on day 5 `full_month`, `target`, `perfect`.
 
 ### Stats
 
-In `finishRound()`, before `end`: `emitMoYuFunStats({ rounds: 1, wins: reason === 'win' ? 1 : 0, fakes: fakesCaught, hoard: Math.min(hoardValue(), 20000) })`.
+In `finishRound()`, before `end`: `emitMoYuFunStats({ rounds: 1, wins: total >= 3000 ? 1 : 0, fakes: fakesCaught, profit: clamp(total, 0, 50000) })`. Stats are non-negative, so a losing month adds 0 profit.
 
 ### Headless test
 
-`v1/test_headless.js` uses 乱刃 v4's stub pattern. It adds a stub for the item canvas's `getContext`, and a `transform` field on `style`. `rng` is seeded unless stated otherwise.
+`v2/test_headless.js` evals the inline script with a canvas stub (a `Proxy` 2D context whose `measureText` returns a width), stubbed `localStorage`, `setTimeout` and `requestAnimationFrame`, and a `parent.postMessage` recorder.
 
-**Load.** Only `ready` is sent until `startRound()`.
-
-**Generator.**
-- 10,000 `makeItem(d)` for d = 1–7. A genuine item has `findFlaws` equal to `[]`. A fake has 1–2 flaws, and `findFlaws` equals `planted` (sorted in part order).
-- Every planted value differs from the genuine one:
-  - a fake mark is not the workshop's mark;
-  - a fake motto differs from the real one in exactly one character;
-  - a fake gem is not in the mine's list;
-  - a fake material is not in the workshop's list.
-- `listValue` is between 50 and 480.
-
-**Negotiation.** Use a hero with `ask 100, floor 80, patience 2` and an item with `listValue ≥ 120`:
-- `offer(100)` → `deal`, and gold drops by 100.
-- `offer(70)` → `counter` with ask 85. Then `acceptCounter()` is a deal at 85.
-- `offer(70)`, then `offer(80)` → `walked`.
-- `offer(45)` → `walked`. With patience 3, it is `insulted` and the ask stays 100.
-- `confront()` with a real flaw marked → `caught`, ask 40, floor 30.
-- `confront()` on a genuine item → `offended`, ask 110, patience 1.
-- Offers above `min(gold, listValue)` throw.
-
-**Night.**
-- A loan of 100 with `p = 1` repays 150 and adds 50 interest. The same holds for a caught fake.
-- An uncaught fake with `p = 1` repays nothing and adds nothing to the hoard.
-- With `p = 0`, a genuine item enters the hoard.
-- With `p = 0`, a fake enters at 0 and sets `fakeInHoard`.
-
-**Candle.** `update(70)` while a hero is present keeps that hero. `refuse()` then goes to night, even with heroes still queued.
-
-**Deterministic round.** Use `rng = mulberry32(7)`, then `startRound()`.
-1. Day 1, heroes 1–5: set `hero.item = buildItem(<a genuine 山根 spec with mark '出'>)`. Then `toggleMark('mark')`, `confront()` (→ `caught`) and `refuse()`.
-2. Hero 6: set `hero.item = buildItem({ type: '王冠', workshop: '星斗', mine: '霜岭', material: '秘银', gem: '苍', mark: '斗', motto: '斗转星移' })` (listValue 480). Set `ask = 300` and `p = 0`, then `offer(300)`. The night has 1 forfeit. Gold is 470.
-3. `nextDay()` (day 2, gold 440). Set `interest = 490`. Hero 1 gets a genuine 戒指, `ask = 40`, `p = 1`, then `offer(40)`. Refuse the rest. The night repays 60, and interest is 510.
-4. Days 3–7: `nextDay()`, refuse every hero. Before the last `nextDay()`, push the step 2 crown into `hoard` twice more (hoard 1440).
-
-Expected sequence: `start, sharp_eye, first_hoard, big_haul, loan_shark, win, clean_win, stats, end`. Expected stats: `{ rounds: 1, wins: 1, fakes: 5, hoard: 1440 }`.
-
-**Bust.** `startRound()`, set `gold = 20`, refuse all six, then `nextDay()`. The sequence after `start` is `stats, end`, with stats `{ rounds: 1, wins: 0, fakes: 0, hoard: 0 }`. The end screen is `关门大吉`.
-
-**Balance.** 200 rounds with seeds 1–200 for each bot, playing through the real functions with no candle:
-- **naive:** never inspects or confronts. Every item gets the genuine terms: open `0.6`, cap `0.85`.
-- **expert:** a perfect appraiser that reads `item.flaws` and `hero.p`. On a fake it marks `flaws[0]` and calls `confront()`. Then, if `p ≥ 0.7`, it lends with open `0.2` and cap `0.4`; otherwise it refuses. On a genuine item it uses open `0.55` and cap `0.85`.
-
-Both bots follow the same loop:
-1. Offer `round5(open × listValue)`, capped at `min(gold, listValue)`. A deal ends the loop.
-2. After a `counter` or `insulted`, call `acceptCounter()` if `ask ≤ cap × listValue` and `ask ≤ gold`.
-3. Otherwise offer again, `round5(0.1 × listValue)` higher.
-4. Stop on `walked`, or when the offer would be below 5.
-
-In the simulation, the expert won 66% and the naive bot 4%. An expert that refuses caught fakes instead of lending won 63%. Assert the expert wins ≥ 60% and the naive bot ≤ 15%. If this fails, tune `START_GOLD`, `HOARD_TARGET` and `FAKE_RATE` in the doc and the code, not the bots or the thresholds.
+- **Load:** exactly `ready, disguise` (five keys, `app: 'excel'`, the ledger title); day 1 shows one row; `update(30)` before any decision moves nothing.
+- **Generator:** seeds 1–3 × days 1–5 × 3000 rows: today's and all rules agree with `truth`; fakes break the rule they planted and only active rules are planted; genuine rows break nothing; asks are ≥ 5 % of the value from both limits; the closed workshop never shows before day 3; every active fake rule is forged at least once a day; the fake share is within 4 points of `FAKE_RATE`; the 秘银 exception occurs on days 4–5.
+- **Settle:** the money table above, cell by cell.
+- **Backlog:** with no decisions, pending never exceeds 5 and the oldest rows time out at −30.
+- **Input:** default selection is the oldest pending row, `↓` moves it, `2` counters it, a click on a `1 收` button (coordinates from `layout`) accepts that row, a click elsewhere in a row selects it.
+- **Boss key:** Esc sends `disguise` with the boss title, freezes the clock and arrivals, ignores `1`; Esc again restores the title.
+- **Sound:** off by default; `M` toggles.
+- **Deterministic month** (seed 7, the rule-following bot through `update(0.25)`): all correct, sequence `start, clean_day, sharp_eye, bargain, full_month, target, perfect, stats, end`, stats keys `rounds, wins, fakes, profit` with `wins 1`, best score saved; then Enter starts a new round without `start`.
+- **Losing month** (accept everything, seed 7): `full_month` but no `target`, `wins 0`, `profit = max(0, total)`.
+- **Balance** (seeds 1–200, same rows for every bot): the rule-following bot (`judge` on the day's rules, visible fields only) beats accept-everything and random on every seed, its mean is ≥ 3× theirs, it is above 1.3 × target and accept-everything is below half the target. Last run: rule 4,384 · 15 % noise 3,683 (175/200 meet the target) · accept-all −178 · random −321.
+- **Pace** (seeds 1–20): a rule bot taking 3.5 s per row never times out; at 8 s per row it does (96 timeouts); shop time per month is 270–360 s (last run 290 s).
+- Every SDK message has exactly its protocol keys.
 
 ## Milestones
 
-Each milestone ends with `node games/dragon-pawn/v1/test_headless.js` passing.
+Each milestone ends with `node games/dragon-pawn/v2/test_headless.js` passing.
 
-**M1 · Playable shop.** Manual tables, generator, heroes, inspection and loupe, marks, confrontation, negotiation, candle, nights, end screens, manual drawer, sounds.
-Done when: a full 7-day round plays in a browser by touch and keyboard, and the generator, negotiation, night, candle and balance tests pass.
+**M1 · Playable ledger.** Rules, generator, settle, arrivals and backlog, ledger and 对账 sheets, Excel chrome, boss key, sound, keyboard/mouse/touch, zoom.
+Done when: a full month plays in a browser and the generator, settle, backlog, input, boss and balance tests pass.
 
-**M2 · Achievements, stats, package.** `game.json`, emission, the deterministic round and bust tests, `README.md`.
-Done when: `pnpm game check dragon-pawn v1` passes.
+**M2 · Achievements, stats, package.** `game.json`, emission, deterministic and losing months, `README.md`.
+Done when: `pnpm game check dragon-pawn v2` passes.
 
-**M3 · Local release.** `pnpm game:local publish dragon-pawn v1 --yes`.
-Done when: `/play/dragon-pawn` plays locally, and a logged-in round unlocks `first_hoard` and updates the stats board. The owner runs the production publish.
+**M3 · Release.** `pnpm game:local publish dragon-pawn v2 --yes`, browser check in normal and 伪装 mode, then production publish.
+Done when: `/play/dragon-pawn` serves v2, 伪装 mode shows the ledger title and Excel icon, a logged-in month unlocks `full_month` and updates the stats board.
 
 ## Implementation notes
 
-- Code: `games/dragon-pawn/v1/index.html` (one file), `games/dragon-pawn/game.json` (copied verbatim from *Package*). Test: `node games/dragon-pawn/v1/test_headless.js`; package: `pnpm game check dragon-pawn v1` (Node 24).
-- Balance through the real code (200 seeds each, `test_headless.js`): expert 68.5%, naive 3.0%. The prototype's 1000-seed numbers were 66% / 4%; the gap is only `rng` call order.
-- Logic never touches the DOM (D11). Visual feedback goes through an `fx` queue (`coins`, `float`, `shake`, `stamp`, `confetti`) that `render()` drains each frame with the Web Animations API. Sounds call `tone` directly from logic, as 摸了个鱼 does.
-- `heroDone()` swaps in the next hero at once, so tests and bots see no delay. The walk-out and walk-in are drawn from `enterT` (1 s): the leaving hero keeps their last line for 0.25 s, slides out, then the new one slides in with the bell at 0.5 s. Input is ignored until `enterT` reaches 0. Hero and treasure slide together.
-- The night overlay fades in 0.7 s after `endDay()` so the last hero's reply is readable. `天亮了` (button or Enter) waits for `enterT` too, so mashing Enter to offer cannot skip the night report.
-- Offer amounts are capped at `maxOffer() = floor5(min(gold, listValue))`: repayments of `round(loan × 1.5)` make gold a non-multiple of 5. `offer()` throws only outside `[5, min(gold, listValue)]`. The balance bots cap with `maxOffer()`.
-- Extra input beyond D13: `−`/`+` buttons beside the slider (fine steps on touch), `Esc` closes the manual, `Enter` also presses 开张, 天亮了 and 再开一家. Enter's keydown calls `preventDefault()` so a focused button is not clicked twice.
-- The loupe glass is 160 px outside with a 146 px lens; the source square is `146 / 2.5` px, so magnification is exactly 2.5×. The item canvas has a 720 px backing store (2×), enough for 3× phones at the stage's usual scale.
-- The manual drawer covers the stage below the top bar, so the candle stays visible while it burns (D9).
-
-### M3 notes
-
-- Local publish registered the game, its achievements and stats; the smoke test found `/play/dragon-pawn` serving v1.
-- Played in the browser: 开张, inspecting parts with the loupe, the manual's tabs, an insulting offer (the hero walked), a 300 金 loan that was accepted (gold 770 → 470), refusing the rest, and the 第 1 天 · 夜 report. No console errors. On `/play/dragon-pawn`, `game_ready` and `game_start` reached the local events table. No account was logged in, so the achievement popup and stats board were not exercised in the browser; the headless test covers the message sequence.
-- Fixed in M3: the loupe kept the previous hero's zoomed part when the next hero arrived, because the redraw key was reset to `''`, the same value as "nothing inspected". It is now reset to `null`.
-- In the desktop play page the 540 × 960 portrait stage is letterboxed, so text is small; fullscreen (`全屏`) helps.
+- Code: `games/dragon-pawn/v2/index.html` (one file, ~655 lines). Test: `node games/dragon-pawn/v2/test_headless.js`; package: `pnpm game check dragon-pawn v2` (Node 24).
+- Cells are `{ t, al, b, size, fg, bg, span, chips, bar, u }`. A cell with `span` paints white across the spanned columns to hide gridlines, the way overflowing text looks in Excel; text is clipped to its cell or span.
+- The status bar's `求和` and the formula bar never show profit, only cash paid out, so they do not leak which decisions were right (D7).
+- The first frame's row is flagged with the arrival flash, which fades once `update` runs (animation time runs before the first decision; the shop clock does not).
+- Bots in the balance test must not call `rng` between days, or later days' rows change between bots; the random bot uses its own `mulberry32(seed + 1000)`.
+- Checked in headless Chrome at 1280 × 760 and 1100 × 700: first frame, a day-5 backlog of 5 with buttons, a mistaken day-1 对账, the month summary and the boss sheet all render as intended. Zoom lands at 105–150 % on desktop sizes.
 
 ## Open items
 
-- The balance numbers (D10) come from a simulation of the two bots, not from people. Real players fall between the bots, since they miss some flaws and make some false accusations. Owner: playtest in M1. If 70 s per day is too short to read the manual, raise `DAY_SECONDS` to 80 (that is still under 10 minutes).
-- The lookalike characters (雷/霜, 斤/斗 and the motto typos) are chosen to be readable at loupe size in common CJK fonts. Owner: check on iOS and Android in M1, and swap any pair that renders as identical.
+- Balance and pace come from bots, not people. Owner, M3 playtest: whether day 5 with 9 rules at 4.4 s per row feels tense but fair, and whether 3,000 is the right target (a player who misses 20 % of rows averages about 3,000).
+- The lookalike marks (护/炉, 雷/霜, 用/月, 出/山, 昱/星, 电/龟) at 13 px × zoom. Owner, M3 browser check: swap any pair that is unreadable or identical in the system font.
+
+### M3 notes (v2)
+
+- Local publish registered v2 and the renamed catalog entry. On `/play/dragon-pawn` in 伪装 the tab read `典当登记台账_10月.xlsx - Excel`; the first frame is the ledger with day 1's two rules marked 今日新增 and the first row waiting.
+- Row 01 (月匠, 印记 月, 行情 80, 要价 30) was accepted with a real click on `1 收`, and the cell became the green `收 30`. Esc swapped to the 销售汇总 decoy and the browser tab title followed it to `2026年度区域销售汇总_v3_终版.xlsx - Excel` (a fresh `disguise`), and back on the second Esc.
+- The day clock and row arrivals looked slow in the browser pane only because the pane throttles `requestAnimationFrame` when it is in the background; the headless test covers timing.
+

@@ -1,30 +1,33 @@
 {
   "slug": "dragon-pawn",
-  "name": "龙的当铺",
-  "shortDescription": "开在地牢门口的龙之当铺：验宝、砍价、等勇者回不来。",
-  "description": "勇者们下地牢前，会把宝物押给你换金币。对照鉴定手册查看印记、铭文、宝石和材质，揪出赝品，再跟勇者讨价还价。活着回来的连本带利赎回，没被识破的骗子却会卷款溜走，回不来的宝物就归你的宝库。七天后宝库价值达到 1000 金即可获胜。",
-  "tags": ["经营", "鉴定", "单人"],
+  "name": "当铺账房",
+  "shortDescription": "一张典当登记台账：照着表头的规则，一行行收、拒、压价。",
+  "description": "你是地牢门口那家当铺的账房。客人一个接一个来押宝物，每位都是台账底部新的一行：物品、工坊、矿脉、印记、铭文、宝石、材质、行情、要价。表头冻结着审核规则，每天多一两条。赝品总会在这一行里露出破绽，要价太高就压价，公道的照收。客人不停地来，待处理超过 5 行最早的那位就会走。每晚的对账表会算清每一笔：赚了多少、收了赝品亏了多少、错过了多少。五天一个月，净利润达到 3,000 即完成指标。整个界面就是一张 Excel 表格，Esc 一键切到销售汇总。",
+  "tags": ["审计", "伪装", "单人"],
   "controls": [
-    { "input": "鼠标 / 触摸", "action": "点击宝物部位查看、标记疑点、出价" },
-    { "input": "1–4 / X", "action": "查看部位 / 标记疑点" },
-    { "input": "← → / Enter", "action": "调整出价 / 出价" },
-    { "input": "B", "action": "打开或合上鉴定手册" },
-    { "input": "M", "action": "静音或恢复声音" }
+    { "input": "1 / A", "action": "收" },
+    { "input": "2 / S", "action": "压价（按要价六折还价）" },
+    { "input": "3 / D", "action": "拒" },
+    { "input": "↑ ↓", "action": "选择待处理的行" },
+    { "input": "鼠标 / 触摸", "action": "点处理格里的按钮，或点一行选中它" },
+    { "input": "Enter", "action": "对账后进入下一天" },
+    { "input": "Esc", "action": "老板键：切到销售汇总表并暂停" },
+    { "input": "M", "action": "打开或关闭声音（默认关）" }
   ],
-  "cover": { "symbol": "当", "eyebrow": "PAWNSHOP", "accent": "#e0a020", "accentSecondary": "#c0392b" },
+  "cover": { "symbol": "账", "eyebrow": "LEDGER", "accent": "#217346", "accentSecondary": "#ffeb9c" },
   "sortOrder": 110,
   "achievements": [
-    { "key": "sharp_eye", "name": "火眼金睛", "description": "一局内当面识破 5 件赝品。", "symbol": "眼" },
-    { "key": "first_hoard", "name": "第一件宝贝", "description": "第一件真品落入宝库。", "symbol": "库" },
-    { "key": "big_haul", "name": "稀世珍宝", "description": "一件价值 300 金以上的真品入库。", "symbol": "珍" },
-    { "key": "loan_shark", "name": "龙息高利", "description": "一局内累计收取利息 500 金。", "symbol": "利" },
-    { "key": "win", "name": "富可敌国", "description": "第七天结束时宝库价值达到 1000 金。", "symbol": "富" },
-    { "key": "clean_win", "name": "明察秋毫", "description": "获胜，且从未冤枉好人、宝库里没有赝品。", "symbol": "察" }
+    { "key": "full_month", "name": "月末结账", "description": "做完五天的台账。", "symbol": "月" },
+    { "key": "sharp_eye", "name": "火眼金睛", "description": "一局内拒收 15 件赝品。", "symbol": "眼" },
+    { "key": "bargain", "name": "砍价高手", "description": "一局内对要价虚高的真品压价成交 10 次。", "symbol": "砍" },
+    { "key": "clean_day", "name": "账实相符", "description": "某一天的处理全部正确。", "symbol": "符" },
+    { "key": "target", "name": "完成指标", "description": "一个月净利润达到 3,000。", "symbol": "标" },
+    { "key": "perfect", "name": "零差错", "description": "五天的处理全部正确。", "symbol": "零" }
   ],
   "stats": [
     { "key": "rounds", "name": "对局", "maxPerRound": 1 },
-    { "key": "wins", "name": "获胜", "maxPerRound": 1 },
-    { "key": "fakes", "name": "识破赝品", "maxPerRound": 42 },
-    { "key": "hoard", "name": "宝库价值", "maxPerRound": 20000 }
+    { "key": "wins", "name": "完成指标", "maxPerRound": 1 },
+    { "key": "fakes", "name": "拒收赝品", "maxPerRound": 64 },
+    { "key": "profit", "name": "净利润", "maxPerRound": 50000 }
   ]
 }
