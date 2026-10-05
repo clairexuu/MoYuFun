@@ -1,0 +1,31 @@
+{
+  "slug": "sheet-mines",
+  "name": "表格扫雷",
+  "shortDescription": "藏在对账表里的扫雷，每一盘都能纯靠推理解开。",
+  "description": "看起来是一份供应商对账明细，其实是扫雷。灰色单元格是待核对的数据，翻开后的数字是周围藏着的 #N/A 个数。第一下一定安全并展开一片，每一盘都保证不用猜，只靠推理就能清完。初级、中级、高级三张工作表，状态栏的计数是剩余雷数，求和是用时。按 Esc 一键切回正经报表。",
+  "tags": ["益智", "扫雷", "单人"],
+  "controls": [
+    { "input": "左键 / 轻触", "action": "翻开单元格；点满足条件的数字展开周围" },
+    { "input": "右键 / 长按 / F", "action": "标记或取消标记" },
+    { "input": "方向键 + 空格 / Enter", "action": "移动选中格并翻开" },
+    { "input": "工作表标签 / PageUp / PageDown", "action": "切换初级、中级、高级" },
+    { "input": "Esc", "action": "老板键：切到普通报表，再按一次回来" },
+    { "input": "M", "action": "打开或关闭声音（默认关闭）" }
+  ],
+  "cover": { "symbol": "雷", "eyebrow": "SHEET MINES", "accent": "#217346", "accentSecondary": "#ffc7ce" },
+  "sortOrder": 15,
+  "achievements": [
+    { "key": "win_easy", "name": "初审通过", "description": "赢下一局初级。", "symbol": "初" },
+    { "key": "win_medium", "name": "复核通过", "description": "赢下一局中级。", "symbol": "复" },
+    { "key": "win_hard", "name": "终审通过", "description": "赢下一局高级。", "symbol": "终" },
+    { "key": "no_flags", "name": "心中有数", "description": "一个标记都不插，赢下中级或高级。", "symbol": "心" },
+    { "key": "quick_easy", "name": "手快", "description": "20 秒内赢下初级。", "symbol": "快" },
+    { "key": "quick_hard", "name": "准点下班", "description": "5 分钟内赢下高级。", "symbol": "准" },
+    { "key": "batch", "name": "批量处理", "description": "一局内用数字展开周围 15 次。", "symbol": "批" }
+  ],
+  "stats": [
+    { "key": "rounds", "name": "对局", "maxPerRound": 1 },
+    { "key": "wins", "name": "获胜", "maxPerRound": 1 },
+    { "key": "cells", "name": "翻开格子", "maxPerRound": 381 }
+  ]
+}

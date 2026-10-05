@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>供应商对账明细_2026Q3.xlsx - Excel</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #fff;
+    user-select: none; -webkit-user-select: none; }
+  #game { position: absolute; inset: 0; display: block; touch-action: none; cursor: cell; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<script>
+'use strict';
+/* 表格扫雷：Excel 皮肤的无猜扫雷。设计文档：docs/games/sheet-mines.md */
+
+// ---------- 常量 ----------
+const TITLE = '供应商对账明细_2026Q3.xlsx - Excel';
+const LEVELS = [
+  { name: '初级', cols: 9, rows: 9, mines: 10 },
+  { name: '中级', cols: 16, rows: 16, mines: 40 },
+  { name: '高级', cols: 30, rows: 16, mines: 99 },
+];
+const MAX_ATTEMPTS = 1000;          // 无猜盘面生成上限；超过就用最后一盘（可能要猜）
+const HIDDEN = 0, OPEN = 1, FLAG = 2;
+const CW = 36, CH = 22, CW0 = 40, RH0 = 22, BOTTOM = 52;   // 100% 缩放下的列宽、行高；行号列宽、列标高
+const SANS = '"Microsoft YaHei", "PingFang SC", "Segoe UI", system-ui, sans-serif';
+const NUM_COLORS = ['', '#0070c0', '#008a3e', '#c00000', '#7030a0', '#9c5700', '#008080', '#404040', '#808080'];
+const GOOD = '#c6efce', BAD = '#ffc7ce', BAD_TEXT = '#9c0006', NEUTRAL = '#ffeb9c', HIDDEN_FILL = '#e7e6e6';
+
+// ---------- MoYuFun SDK v1 ----------
+const MOYUFUN_PARENT_ORIGIN = location.hostname === 'localhost'
+  ? 'http://localhost:3000'
+  : 'https://www.moyufuns.com';
+function emitMoYuFunEvent(type) {
+  if (window.parent === window) return;
+  window.parent.postMessage({ source: 'moyufun-game', version: 1, type }, MOYUFUN_PARENT_ORIGIN);
+}
+function emitMoYuFunAchievement(key) {
+  if (window.parent === window) return;
+  window.parent.postMessage({ source: 'moyufun-game', version: 1, type: 'achievement', key }, MOYUFUN_PARENT_ORIGIN);
+}
+// 战绩：每局结算时发送一次，在成就之后、end 之前；键和上限在 game.json 的 stats 中声明。
+function emitMoYuFunStats(stats) {
+  if (window.parent === window) return;
+  window.parent.postMessage({ source: 'moyufun-game', version: 1, type: 'stats', stats }, MOYUFUN_PARENT_ORIGIN);
+}
+// 伪装：每次 ready 之后发送，主站据此提供「伪装」模式并设置标签页标题。
+function emitMoYuFunDisguise(app, title) {
+  if (window.parent === window) return;
+  window.parent.postMessage({ source: 'moyufun-game', version: 1, type: 'disguise', app, title }, MOYUFUN_PARENT_ORIGIN);
+}
+// 成就：每局每个 key 最多发送一次；结算时的成就必须在 end 之前发送（主站在 end 后忽略成就）。
+let roundAchievements = new Set();
+function unlock(key) {
+  if (roundAchievements.has(key)) return;
+  roundAchievements.add(key);
+  emitMoYuFunAchievement(key);
+}
+
+// ---------- 音频（默认静音，M 切换） ----------
+let AC = null, master = null, muted = true;
+function ensureAudio() {
+  if (muted) return;
+  if (!AC) {
+    try {
+      AC = new (window.AudioContext || window.webkitAudioContext)();
+      master = AC.createGain(); master.gain.value = 0.15; master.connect(AC.destination);
+    } catch (err) { AC = null; }
+  }
+  if (AC && AC.state === 'suspended') AC.resume();
+}
+function tone(f0, f1, dur, type, vol) {
+  if (!AC || muted) return;
+  const t = AC.currentTime, o = AC.createOscillator(), g = AC.createGain();
+  o.type = type || 'sine';
+  o.frequency.setValueAtTime(Math.max(1, f0), t);
+  o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t + dur);
+  g.gain.setValueAtTime(vol || 1, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  o.connect(g); g.connect(master); o.start(t); o.stop(t + dur + 0.03);
+}
+
+// ---------- 随机数（测试可设种子） ----------
+function mulberry32(a) {
+  return function () {
+    a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+let rngFn = mulberry32((Math.random() * 4294967296) >>> 0);
+function rng() { return rngFn(); }
+function setSeed(seed) { rngFn = mulberry32(seed >>> 0); }
+
+// ---------- 纯规则 ----------
+function neighbors(cols, rows, i) {
+  const x = i % cols, y = (i - x) / cols, out = [];
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+    if (!dx && !dy) continue;
+    const nx = x + dx, ny = y + dy;
+    if (nx >= 0 && ny >= 0 && nx < cols && ny < rows) out.push(ny * cols + nx);
+  }
+  return out;
+}
+// 首击格及其周围 8 格不放雷，所以首击一定是 0，会展开一片。
+function placeMines(cols, rows, mines, first, rnd) {
+  const n = cols * rows, banned = new Set([first, ...neighbors(cols, rows, first)]), pool = [];
+  for (let i = 0; i < n; i++) if (!banned.has(i)) pool.push(i);
+  const mine = new Uint8Array(n);
+  for (let k = 0; k < mines; k++) {
+    const j = k + Math.floor(rnd() * (pool.length - k));
+    [pool[k], pool[j]] = [pool[j], pool[k]];
+    mine[pool[k]] = 1;
+  }
+  return mine;
+}
+function countAdj(cols, rows, mine) {
+  const adj = new Int8Array(mine.length);
+  for (let i = 0; i < mine.length; i++) for (const j of neighbors(cols, rows, i)) adj[i] += mine[j];
+  return adj;
+}
+// 确定性逻辑求解器：从 first 开始，只用三条规则推理，返回能否不猜就清盘。
+// 1. 单格：数字减去已知雷 = 0 → 周围未知全安全；= 未知数 → 全是雷。
+// 2. 两两（含子集）：相距 ≤ 2 的约束 A、B 有重叠，若 B.m − A.m = |B∖A|，则 B∖A 全是雷、A∖B 全安全。
+// 3. 全局：剩余雷数 = 0 → 剩下全安全；= 剩余未知格数 → 全是雷。
+function solves(cols, rows, mine, first) {
+  const n = cols * rows, adj = countAdj(cols, rows, mine), nb = [];
+  for (let i = 0; i < n; i++) nb.push(neighbors(cols, rows, i));
+  const k = new Int8Array(n).fill(-1);   // -1 未知，0 已翻开，1 已推出是雷
+  let mines = 0, open = 0, known = 0;
+  for (let i = 0; i < n; i++) mines += mine[i];
+  function openCell(s) {
+    const stack = [s];
+    while (stack.length) {
+      const i = stack.pop();
+      if (k[i] !== -1) continue;
+      if (mine[i]) throw new Error('求解器翻到了雷');   // 规则不严谨才会发生
+      k[i] = 0; open++;
+      if (adj[i] === 0) for (const j of nb[i]) if (k[j] === -1) stack.push(j);
+    }
+  }
+  openCell(first);
+  for (;;) {
+    if (open === n - mines) return true;
+    let progress = false;
+    const cons = [];
+    for (let i = 0; i < n; i++) {
+      if (k[i] !== 0 || adj[i] === 0) continue;
+      const u = []; let m = adj[i];
+      for (const j of nb[i]) { if (k[j] === -1) u.push(j); else if (k[j] === 1) m--; }
+      if (!u.length) continue;
+      if (m === 0) { for (const j of u) openCell(j); progress = true; }
+      else if (m === u.length) { for (const j of u) if (k[j] === -1) { k[j] = 1; known++; } progress = true; }
+      else cons.push({ i, u, m });
+    }
+    if (progress) continue;
+    for (let a = 0; a < cons.length && !progress; a++) {
+      const A = cons[a], ax = A.i % cols, ay = (A.i - ax) / cols, setA = new Set(A.u);
+      for (let b = 0; b < cons.length; b++) {
+        const B = cons[b], bx = B.i % cols, by = (B.i - bx) / cols;
+        if (a === b || Math.abs(ax - bx) > 2 || Math.abs(ay - by) > 2) continue;
+        const onlyB = B.u.filter(j => !setA.has(j));
+        if (onlyB.length === B.u.length || B.m - A.m !== onlyB.length) continue;
+        const setB = new Set(B.u), onlyA = A.u.filter(j => !setB.has(j));
+        if (!onlyA.length && !onlyB.length) continue;
+        for (const j of onlyB) { k[j] = 1; known++; }
+        for (const j of onlyA) openCell(j);
+        progress = true; break;
+      }
+    }
+    if (progress) continue;
+    const rest = [];
+    for (let i = 0; i < n; i++) if (k[i] === -1) rest.push(i);
+    if (mines === known) { for (const j of rest) openCell(j); continue; }
+    if (mines - known === rest.length) { for (const j of rest) k[j] = 1; known = mines; continue; }
+    return false;
+  }
+}
+
+function makeBoard(lv) {
+  const L = LEVELS[lv], n = L.cols * L.rows;
+  return { cols: L.cols, rows: L.rows, mines: L.mines, mine: null, adj: null,
+    st: new Uint8Array(n), opened: 0, flags: 0, hit: -1, attempts: 0, noGuess: false };
+}
+// 反复布雷直到求解器能清盘；MAX_ATTEMPTS 次都不行就用最后一盘（noGuess = false）。
+function generateBoard(b, first, rnd, maxAttempts = MAX_ATTEMPTS) {
+  for (let a = 1; a <= maxAttempts; a++) {
+    b.mine = placeMines(b.cols, b.rows, b.mines, first, rnd);
+    b.attempts = a;
+    if (solves(b.cols, b.rows, b.mine, first)) { b.noGuess = true; break; }
+  }
+  b.adj = countAdj(b.cols, b.rows, b.mine);
+}
+// 翻开一格（0 则洪水展开）；返回新翻开的 [格, 距离]。翻到雷时设 b.hit。
+function openCells(b, start) {
+  if (b.st[start] !== HIDDEN) return [];
+  if (b.mine[start]) { b.hit = start; b.st[start] = OPEN; return []; }
+  const out = [], queue = [[start, 0]];
+  b.st[start] = OPEN;
+  for (let q = 0; q < queue.length; q++) {
+    const [i, d] = queue[q];
+    out.push(queue[q]); b.opened++;
+    if (b.adj[i]) continue;
+    for (const j of neighbors(b.cols, b.rows, i)) {
+      if (b.st[j] !== HIDDEN) continue;   // 标记的格子不展开
+      b.st[j] = OPEN; queue.push([j, d + 1]);
+    }
+  }
+  return out;
+}
+function toggleFlag(b, i) {
+  if (b.st[i] === OPEN) return false;
+  b.st[i] = b.st[i] === FLAG ? HIDDEN : FLAG;
+  b.flags += b.st[i] === FLAG ? 1 : -1;
+  return true;
+}
+// 和弦：已翻开的数字周围标记数等于数字时，翻开其余未标记的邻格。不满足返回 null。
+function chordCells(b, i) {
+  if (b.st[i] !== OPEN || !b.adj[i]) return null;
+  const nb = neighbors(b.cols, b.rows, i);
+  if (nb.filter(j => b.st[j] === FLAG).length !== b.adj[i]) return null;
+  const out = [];
+  for (const j of nb) if (b.st[j] === HIDDEN) {
+    if (b.mine[j]) { if (b.hit < 0) b.hit = j; b.st[j] = OPEN; }
+    else out.push(...openCells(b, j).map(([c, d]) => [c, d + 1]));
+  }
+  return out;
+}
+function safeTotal(b) { return b.cols * b.rows - b.mines; }
+
+// ---------- 状态 ----------
+let level = 0, board = makeBoard(0), phase = 'idle';   // idle：还没首击；play；won；lost
+let gameT = 0, clock = 0, endClock = 0, boss = false;
+let sel = { c: 0, r: 0 }, chords = 0, flagsPlaced = 0, cellsOpened = 0;
+let flashAt = new Float32Array(board.st.length).fill(-1);
+let press = null, note = '', noteT = 0;
+
+function abandon() {
+  if (phase !== 'play') return;
+  emitMoYuFunStats({ rounds: 1, wins: 0, cells: cellsOpened });
+  emitMoYuFunEvent('end');
+  phase = 'idle';
+}
+function newRound(lv) {
+  abandon();
+  level = lv; board = makeBoard(lv); phase = 'idle';
+  gameT = 0; chords = 0; flagsPlaced = 0; cellsOpened = 0; press = null;
+  flashAt = new Float32Array(board.st.length).fill(-1);
+  sel = { c: Math.min(sel.c, board.cols - 1), r: Math.min(sel.r, board.rows - 1) };
+}
+function switchLevel(lv) {
+  if (lv < 0 || lv >= LEVELS.length) return;
+  if (lv === level && phase === 'play') return;
+  if (lv === level && phase === 'idle') return;
+  newRound(lv);
+}
+const idx = (c, r) => r * board.cols + c;
+
+// 主操作：未翻开 → 翻开；已翻开的数字 → 和弦；结束后 → 新开一局。
+function act(i) {
+  if (boss) return false;
+  if (phase === 'won' || phase === 'lost') {
+    if (clock - endClock < 0.4) return false;
+    newRound(level); return true;
+  }
+  if (board.st[i] === FLAG) return false;
+  if (phase === 'idle') {
+    generateBoard(board, i, rng);
+    phase = 'play'; gameT = 0; roundAchievements = new Set();
+    emitMoYuFunEvent('start');
+  }
+  let got;
+  if (board.st[i] === OPEN) {
+    got = chordCells(board, i);
+    if (!got) return false;
+    if (got.length && ++chords === 15) unlock('batch');
+  } else got = openCells(board, i);
+  for (const [j, d] of got) flashAt[j] = clock + Math.min(d, 20) * 0.015;
+  cellsOpened += got.length;
+  if (board.hit >= 0) { lose(); return true; }
+  if (got.length >= 12) { note = '计算(4 个处理器): 100%'; noteT = 0.7; }
+  tone(900 + Math.min(got.length, 30) * 10, 700, 0.04, 'square', 0.25);
+  if (board.opened === safeTotal(board)) win();
+  return true;
+}
+function flag(i) {
+  if (boss || phase !== 'play' || !toggleFlag(board, i)) return false;
+  if (board.st[i] === FLAG) flagsPlaced++;
+  flashAt[i] = clock;
+  tone(500, 420, 0.05, 'triangle', 0.3);
+  return true;
+}
+function win() {
+  phase = 'won'; endClock = clock; noteT = 0;
+  board.st.forEach((s, i) => {
+    if (!board.mine[i]) return;
+    if (s !== FLAG) { board.st[i] = FLAG; board.flags++; }
+    flashAt[i] = clock + Math.floor(i / board.cols) * 0.03;
+  });
+  unlock(['win_easy', 'win_medium', 'win_hard'][level]);
+  if (level > 0 && flagsPlaced === 0) unlock('no_flags');
+  if (level === 0 && gameT <= 20) unlock('quick_easy');
+  if (level === 2 && gameT <= 300) unlock('quick_hard');
+  emitMoYuFunStats({ rounds: 1, wins: 1, cells: cellsOpened });
+  emitMoYuFunEvent('end');
+  tone(660, 990, 0.18, 'sine', 0.4);
+}
+function lose() {
+  phase = 'lost'; endClock = clock;
+  const hx = board.hit % board.cols, hy = Math.floor(board.hit / board.cols);
+  board.mine.forEach((m, i) => {
+    if (!m || i === board.hit) return;
+    const d = Math.max(Math.abs(i % board.cols - hx), Math.abs(Math.floor(i / board.cols) - hy));
+    flashAt[i] = clock + d * 0.03;
+  });
+  flashAt[board.hit] = clock;
+  emitMoYuFunStats({ rounds: 1, wins: 0, cells: cellsOpened });
+  emitMoYuFunEvent('end');
+  tone(220, 90, 0.35, 'sawtooth', 0.35);
+}
+function toggleBoss() { boss = !boss; press = null; }
+
+function update(dt) {
+  clock += dt;
+  if (phase === 'play' && !boss) gameT += dt;
+  if (noteT > 0) noteT -= dt;
+  if (press && !press.fired && press.touch) {
+    press.t += dt;
+    if (press.t >= 0.45) { press.fired = true; flag(press.i); }
+  }
+}
+
+// ---------- 布局 ----------
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const view = { w: 0, h: 0, dpr: 1 };
+// 用 clientWidth 而不是 innerWidth：手机上画布一旦过宽，innerWidth 会被撑大。
+function resize() {
+  view.dpr = window.devicePixelRatio || 1;
+  view.w = document.documentElement.clientWidth;
+  view.h = document.documentElement.clientHeight;
+  canvas.width = view.w * view.dpr;
+  canvas.height = view.h * view.dpr;
+  canvas.style.width = view.w + 'px';
+  canvas.style.height = view.h + 'px';
+}
+window.addEventListener('resize', resize);
+resize();
+
+// 每次都按当前窗口和难度现算，绘制和点击共用，不缓存。
+function geom() {
+  const ribbonH = view.h < 520 ? 30 : 64, top = 34 + ribbonH + 34;
+  const ca0 = view.w < 600 ? 60 : 96;
+  const fit = Math.min(1.4,
+    (view.w - CW0) / (ca0 + (board.cols + 0.5) * CW),
+    (view.h - top - RH0 - BOTTOM) / ((board.rows + 2.5) * CH));
+  const z = Math.max(0.1, Math.floor(fit * 20) / 20);
+  return { ribbonH, top, z, cw: Math.round(CW * z), ch: Math.round(CH * z), ca: Math.round(ca0 * z), gy: top + RH0 };
+}
+function cellRect(c, r, g = geom()) {
+  return { x: CW0 + g.ca + c * g.cw, y: g.gy + (r + 2) * g.ch, w: g.cw, h: g.ch };
+}
+function cellAt(px, py) {
+  const g = geom(), c = Math.floor((px - CW0 - g.ca) / g.cw), r = Math.floor((py - g.gy) / g.ch) - 2;
+  return c >= 0 && r >= 0 && c < board.cols && r < board.rows && py < view.h - BOTTOM ? { c, r } : null;
+}
+const TAB_X = 40, TAB_W = 60;
+function tabAt(px, py) {
+  const by = view.h - BOTTOM;
+  if (py < by || py > by + 28) return -1;
+  const k = Math.floor((px - TAB_X) / TAB_W);
+  return k >= 0 && k < LEVELS.length ? k : -1;
+}
+function colName(n) {
+  let s = '';
+  for (n++; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + (n - 1) % 26) + s;
+  return s;
+}
+function hash(x, y) { let h = x * 374761393 + y * 668265263; h = (h ^ (h >>> 13)) * 1274126177; return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
+
+// ---------- 单元格内容 ----------
+// 返回 { text, fill, color, align, bold, tri, overflow } 或 null。sc/sr 是工作表坐标（A1 = 0,0）。
+function gameCell(sc, sr) {
+  if (sr === 0) return sc === 0 ? { text: '供应商对账明细（2026Q3，单位：元）', bold: true, overflow: true } : null;
+  if (sr === 1) {
+    if (sc === 0) return { text: '供应商编号', bold: true, fill: '#ddebf7' };
+    return sc <= board.cols ? { text: '7/' + sc, bold: true, fill: '#ddebf7', align: 'center' } : null;
+  }
+  const r = sr - 2, c = sc - 1;
+  if (r >= board.rows) return null;
+  if (sc === 0) return { text: 'GYS-' + String(1001 + r * 7), color: '#222' };
+  if (c >= board.cols) return null;
+  const i = idx(c, r), s = board.st[i], f = flashAt[i], mine = board.mine && board.mine[i];
+  if (phase === 'lost' && mine && clock >= f) {
+    if (i === board.hit) return { text: '#N/A', fill: BAD, color: BAD_TEXT, align: 'center', bold: true };
+    if (s !== FLAG) return { text: '#N/A', color: BAD_TEXT, align: 'center', fill: HIDDEN_FILL, border: true };
+  }
+  if (phase === 'lost' && s === FLAG && !mine) return { text: '#REF!', fill: NEUTRAL, color: '#9c5700', align: 'center' };
+  if (s === FLAG) {
+    if (phase === 'won') return { fill: clock >= f ? GOOD : BAD, border: true };
+    return { fill: BAD, tri: true, flash: f, border: true };
+  }
+  if (s === HIDDEN || clock < f) return { fill: HIDDEN_FILL, border: true };
+  const n = board.adj[i];
+  return { text: n ? String(n) : '', color: NUM_COLORS[n], align: 'right', bold: true, flash: f };
+}
+const SUPPLIERS = ['恒达物流', '华信包装', '远航电子', '金桥五金', '瑞丰纸业', '新元化工', '广利塑胶', '宏图印务',
+  '东升机电', '嘉禾食品', '博远科技', '鼎盛建材', '万通快运', '隆基精密', '安泰劳保', '永昌纺织', '星河照明',
+  '中和仪表', '信诚办公', '天成钢构', '海川冷链', '明德软件'];
+const BOSS_HEAD = ['供应商编号', '供应商名称', '期初余额', '本期采购', '本期付款', '期末余额', '差异', '状态'];
+const BOSS_W = [90, 110, 92, 92, 92, 92, 70, 64];
+const money = v => v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+function bossCell(sc, sr) {
+  if (sr === 0) return sc === 0 ? { text: '供应商对账汇总（2026Q3，单位：元）', bold: true, overflow: true } : null;
+  if (sr === 1) return sc < 8 ? { text: BOSS_HEAD[sc], bold: true, fill: '#ddebf7', align: sc > 1 && sc < 7 ? 'center' : 'left' } : null;
+  const r = sr - 2;
+  if (sc > 7) return null;
+  if (r === SUPPLIERS.length) {
+    if (sc === 0) return { text: '合计', bold: true };
+    if (sc >= 2 && sc <= 5) {
+      let s = 0; for (let k = 0; k < SUPPLIERS.length; k++) s += bossMoney(sc, k);
+      return { text: money(s), align: 'right', bold: true };
+    }
+    return null;
+  }
+  if (r > SUPPLIERS.length) return null;
+  const off = r % 7 === 3 || r % 11 === 8;
+  switch (sc) {
+    case 0: return { text: 'GYS-' + String(1001 + r * 7) };
+    case 1: return { text: SUPPLIERS[r] };
+    case 6: return { text: off ? money(Math.round(hash(r, 9) * 4000) / 100) : '0.00', align: 'right', color: off ? '#9c5700' : '#222', fill: off ? NEUTRAL : null };
+    case 7: return off ? { text: '待核实', fill: NEUTRAL, color: '#9c5700' } : { text: '已核对', fill: GOOD, color: '#006100' };
+    default: return { text: money(bossMoney(sc, r)), align: 'right' };
+  }
+}
+function bossMoney(sc, r) {
+  const open = Math.round(20000 + hash(r, 2) * 380000), buy = Math.round(hash(r, 3) * 260000), pay = Math.round(hash(r, 4) * 240000);
+  return [0, 0, open, buy, pay, open + buy - pay][sc];
+}
+
+// ---------- 编辑栏 / 状态栏文案 ----------
+function address() { return boss ? 'A1' : colName(sel.c + 1) + (sel.r + 3); }
+function formula() {
+  if (boss) return '供应商对账汇总（2026Q3，单位：元）';
+  const i = idx(sel.c, sel.r), s = board.st[i], row = sel.r + 3;
+  if (phase === 'lost' && board.mine[i]) return '=NA()';
+  if (s === FLAG) return phase === 'won' ? '=VLOOKUP($A' + row + ',台账!$A:$AF,' + (sel.c + 2) + ',FALSE)' : '="待核实"';
+  if (s === OPEN) {
+    const a = colName(Math.max(1, sel.c)) + Math.max(3, row - 1), z = colName(Math.min(board.cols, sel.c + 2)) + Math.min(board.rows + 2, row + 1);
+    return '=COUNTIF(' + a + ':' + z + ',"#N/A")';
+  }
+  return '=IFERROR(VLOOKUP($A' + row + ',台账!$A:$AF,' + (sel.c + 2) + ',FALSE),"")';
+}
+function statusLeft() {
+  if (boss) return '就绪';
+  if (noteT > 0) return note;
+  if (phase === 'idle') return '就绪    单击灰色单元格开始核对；右键标记';
+  if (phase === 'won') return '就绪    核对完成，用时 ' + Math.floor(gameT) + ' 秒；单击表格再来一份';
+  if (phase === 'lost') return '#N/A 引用错误；单击表格重新核对';
+  return '就绪';
+}
+function statusRight() {
+  if (boss) return '平均值: 128,436.27    计数: 92    求和: 2,825,598.00';
+  const avg = phase === 'idle' ? 0 : board.opened / safeTotal(board);
+  return '平均值: ' + avg.toFixed(2) + '    计数: ' + (board.mines - board.flags) + '    求和: ' + Math.floor(gameT);
+}
+
+// ---------- 绘制 ----------
+function txt(s, x, y, color, size, align, weight) {
+  ctx.font = `${weight || 400} ${size || 12}px ${SANS}`; ctx.fillStyle = color;
+  ctx.textAlign = align || 'left'; ctx.textBaseline = 'middle'; ctx.fillText(s, x, y);
+}
+function drawChrome(g) {
+  const W = view.w;
+  // 标题栏
+  ctx.fillStyle = '#217346'; ctx.fillRect(0, 0, W, 34);
+  ctx.fillStyle = 'rgba(255,255,255,.85)';
+  ctx.fillRect(14, 11, 12, 12); ctx.fillStyle = '#217346'; ctx.fillRect(17, 11, 6, 4);   // 保存
+  txt('↶', 40, 17, '#fff', 14); txt('↷', 60, 17, 'rgba(255,255,255,.6)', 14);
+  if (W > 520) txt(TITLE, W / 2, 17, '#fff', 12, 'center');
+  txt('—', W - 104, 17, '#fff', 12, 'center'); txt('☐', W - 64, 17, '#fff', 12, 'center'); txt('✕', W - 22, 17, '#fff', 12, 'center');
+  // 功能区
+  ctx.fillStyle = '#f3f3f3'; ctx.fillRect(0, 34, W, g.ribbonH);
+  ['文件', '开始', '插入', '页面布局', '公式', '数据', '审阅', '视图', '帮助'].forEach((t, i) => {
+    const x = 14 + i * 62;
+    txt(t, x, 49, i === 1 ? '#217346' : '#444', 12, 'left', i === 1 ? 600 : 400);
+    if (i === 1) { ctx.fillStyle = '#217346'; ctx.fillRect(x, 58, 26, 2); }
+  });
+  if (g.ribbonH > 30) {
+    for (let i = 0; i < 28; i++) {
+      const x = 14 + i * 28 + Math.floor(i / 4) * 14;
+      if (x > W - 30) break;
+      ctx.fillStyle = i % 4 === 0 ? '#c8c8c8' : '#d6d6d6'; ctx.fillRect(x, 68, i % 4 === 0 ? 22 : 18, i % 4 === 0 ? 22 : 18);
+      if (i % 4 === 3) { ctx.fillStyle = '#dcdcdc'; ctx.fillRect(x + 24, 66, 1, 26); }
+    }
+  }
+  ctx.fillStyle = '#d4d4d4'; ctx.fillRect(0, 33 + g.ribbonH, W, 1);
+  // 编辑栏
+  const fy = 34 + g.ribbonH;
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, fy, W, 34);
+  ctx.strokeStyle = '#d4d4d4'; ctx.lineWidth = 1;
+  ctx.strokeRect(6.5, fy + 6.5, 84, 21); ctx.strokeRect(150.5, fy + 6.5, W - 158, 21);
+  txt(address(), 12, fy + 17, '#222'); txt('▾', 82, fy + 17, '#777', 9, 'center');
+  txt('✕', 104, fy + 17, '#999', 11, 'center'); txt('✓', 120, fy + 17, '#999', 11, 'center');
+  txt('fx', 138, fy + 17, '#666', 12, 'center', 600);
+  ctx.save(); ctx.beginPath(); ctx.rect(151, fy + 7, W - 160, 20); ctx.clip();
+  txt(formula(), 158, fy + 17, '#222'); ctx.restore();
+  ctx.fillStyle = '#d4d4d4'; ctx.fillRect(0, fy + 33, W, 1);
+}
+function drawGrid(g, colW, rowH, cellFn, selC, selR, hdrHighlight) {
+  const W = view.w, bottomY = view.h - BOTTOM, x0 = CW0, y0 = g.gy;
+  const xs = [x0]; while (xs[xs.length - 1] < W) xs.push(xs[xs.length - 1] + colW(xs.length - 1));
+  const ys = [y0]; while (ys[ys.length - 1] < bottomY) ys.push(ys[ys.length - 1] + rowH);
+  const nc = xs.length - 1, nr = ys.length - 1, fs = Math.max(6, Math.round(11 * g.z * 10) / 10);
+  ctx.save(); ctx.beginPath(); ctx.rect(0, g.top, W, bottomY - g.top); ctx.clip();
+  const cells = [];
+  for (let r = 0; r < nr; r++) for (let c = 0; c < nc; c++) {
+    const v = cellFn(c, r);
+    if (!v) continue;
+    cells.push([c, r, v]);
+    if (v.fill) { ctx.fillStyle = v.fill; ctx.fillRect(xs[c], ys[r], xs[c + 1] - xs[c], rowH); }
+    if (v.flash >= 0) {   // 新翻开 / 新标记的格子淡出一层浅蓝
+      const t = (clock - v.flash) / 0.35;
+      if (t >= 0 && t < 1) { ctx.globalAlpha = 1 - t; ctx.fillStyle = '#bdd7ee'; ctx.fillRect(xs[c], ys[r], xs[c + 1] - xs[c], rowH); ctx.globalAlpha = 1; }
+    }
+  }
+  ctx.strokeStyle = '#e1e1e1'; ctx.lineWidth = 1; ctx.beginPath();
+  for (const x of xs) { ctx.moveTo(x + 0.5, y0); ctx.lineTo(x + 0.5, bottomY); }
+  for (const y of ys) { ctx.moveTo(x0, y + 0.5); ctx.lineTo(W, y + 0.5); }
+  ctx.stroke();
+  // 未翻开 / 标记的格子用白色细框线，像套了表格样式的待填区域，格子数得清。
+  ctx.strokeStyle = '#fff'; ctx.beginPath();
+  for (const [c, r, v] of cells) if (v.border) ctx.rect(xs[c] + 0.5, ys[r] + 0.5, xs[c + 1] - xs[c], rowH);
+  ctx.stroke();
+  for (const [c, r, v] of cells) {
+    const x = xs[c], w = xs[c + 1] - x, y = ys[r];
+    if (v.tri) { ctx.fillStyle = '#c00000'; ctx.beginPath(); const s = Math.max(4, Math.round(6 * g.z)); ctx.moveTo(x + w - s, y + 1); ctx.lineTo(x + w, y + 1); ctx.lineTo(x + w, y + 1 + s); ctx.fill(); }
+    if (!v.text) continue;
+    ctx.font = `${v.bold ? 600 : 400} ${fs}px ${SANS}`;
+    const clip = !v.overflow && ctx.measureText(v.text).width > w - 4;
+    if (clip) { ctx.save(); ctx.beginPath(); ctx.rect(x, y, w, rowH); ctx.clip(); }
+    const al = v.align || 'left';
+    txt(v.text, al === 'right' ? x + w - 4 : al === 'center' ? x + w / 2 : x + 4, y + rowH / 2 + 0.5, v.color || '#222', fs, al, v.bold ? 600 : 400);
+    if (clip) ctx.restore();
+  }
+  // 列标与行号
+  ctx.fillStyle = '#f3f3f3'; ctx.fillRect(0, g.top, W, RH0); ctx.fillRect(0, g.top, CW0, bottomY - g.top);
+  ctx.strokeStyle = '#d4d4d4'; ctx.beginPath();
+  for (let c = 0; c < nc; c++) {
+    const hl = hdrHighlight && c === selC;
+    if (hl) { ctx.fillStyle = '#d2d2d2'; ctx.fillRect(xs[c], g.top, xs[c + 1] - xs[c], RH0); ctx.fillStyle = '#217346'; ctx.fillRect(xs[c], g.top + RH0 - 2, xs[c + 1] - xs[c], 2); }
+    txt(colName(c), (xs[c] + xs[c + 1]) / 2, g.top + RH0 / 2 + 0.5, hl ? '#217346' : '#555', 11, 'center');
+    ctx.moveTo(xs[c + 1] + 0.5, g.top); ctx.lineTo(xs[c + 1] + 0.5, g.top + RH0);
+  }
+  for (let r = 0; r < nr; r++) {
+    const hl = hdrHighlight && r === selR;
+    if (hl) { ctx.fillStyle = '#d2d2d2'; ctx.fillRect(0, ys[r], CW0, rowH); ctx.fillStyle = '#217346'; ctx.fillRect(CW0 - 2, ys[r], 2, rowH); }
+    txt(String(r + 1), CW0 / 2, ys[r] + rowH / 2 + 0.5, hl ? '#217346' : '#555', Math.min(11, Math.max(7, rowH * 0.5)), 'center');
+    ctx.moveTo(0, ys[r + 1] + 0.5); ctx.lineTo(CW0, ys[r + 1] + 0.5);
+  }
+  ctx.stroke();
+  ctx.fillStyle = '#c8c8c8'; ctx.fillRect(0, g.top + RH0 - 1, W, 1); ctx.fillRect(CW0 - 1, g.top, 1, bottomY - g.top);
+  // 选中框
+  if (selC < nc && selR < nr) {
+    const x = xs[selC], y = ys[selR], w = xs[selC + 1] - x;
+    ctx.strokeStyle = '#217346'; ctx.lineWidth = 2; ctx.strokeRect(x + 1, y + 1, w - 1, rowH - 1);
+    ctx.fillStyle = '#fff'; ctx.fillRect(x + w - 3, y + rowH - 3, 7, 7);
+    ctx.fillStyle = '#217346'; ctx.fillRect(x + w - 2, y + rowH - 2, 5, 5);
+  }
+  ctx.restore();
+}
+function drawBottom(g) {
+  const W = view.w, by = view.h - BOTTOM;
+  ctx.fillStyle = '#f3f3f3'; ctx.fillRect(0, by, W, 28);
+  ctx.fillStyle = '#d4d4d4'; ctx.fillRect(0, by, W, 1);
+  txt('◀', 12, by + 14, '#999', 9, 'center'); txt('▶', 26, by + 14, '#999', 9, 'center');
+  const tabs = boss ? ['汇总', '明细', 'Q3对账'] : LEVELS.map(L => L.name), active = boss ? 0 : level;
+  tabs.forEach((t, i) => {
+    const x = TAB_X + i * TAB_W;
+    if (i === active) {
+      ctx.fillStyle = '#fff'; ctx.fillRect(x, by, TAB_W, 26);
+      ctx.fillStyle = '#217346'; ctx.fillRect(x + 8, by + 23, TAB_W - 16, 2);
+    }
+    ctx.fillStyle = '#d4d4d4'; ctx.fillRect(x + TAB_W, by + 6, 1, 16);
+    txt(t, x + TAB_W / 2, by + 14, i === active ? '#217346' : '#444', 12, 'center', i === active ? 600 : 400);
+  });
+  txt('⊕', TAB_X + tabs.length * TAB_W + 16, by + 14, '#666', 13, 'center');
+  // 状态栏
+  ctx.fillStyle = '#217346'; ctx.fillRect(0, by + 28, W, 24);
+  const sy = by + 40, zoom = boss ? '100%' : Math.round(g.z * 100) + '%';
+  const left = statusLeft();
+  txt(left, 12, sy, '#fff', 12);
+  // 右侧统计放不下就先去掉平均值，再放不下就不画，避免和左侧文字重叠。
+  const room = W - 236 - (12 + ctx.measureText(left).width + 24);
+  let right = statusRight();
+  if (ctx.measureText(right).width > room) right = right.replace(/^平均值: \S+ +/, '');
+  if (ctx.measureText(right).width <= room) txt(right, W - 236, sy, '#fff', 12, 'right');
+  ctx.fillStyle = 'rgba(255,255,255,.7)'; ctx.fillRect(W - 210, sy, 100, 1); ctx.fillRect(W - 162, sy - 5, 3, 10);
+  txt('−', W - 222, sy, '#fff', 12, 'center'); txt('+', W - 98, sy, '#fff', 12, 'center');
+  txt(zoom, W - 14, sy, '#fff', 12, 'right');
+}
+function draw() {
+  ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, view.w, view.h);
+  const g = geom();
+  drawChrome(g);
+  if (boss) {
+    const bg = { ...g, z: 1, top: g.top, gy: g.gy };
+    drawGrid(bg, c => BOSS_W[c] || 64, 22, bossCell, 0, 0, true);
+    drawBottom(bg);
+  } else {
+    drawGrid(g, c => (c === 0 ? g.ca : g.cw), g.ch, gameCell, sel.c + 1, sel.r + 2, true);
+    drawBottom(g);
+  }
+}
+
+// ---------- 输入 ----------
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+canvas.addEventListener('pointerdown', e => {
+  ensureAudio();
+  if (boss) return;
+  const tab = tabAt(e.clientX, e.clientY);
+  if (tab >= 0) {
+    switchLevel(tab);
+    return;
+  }
+  const cell = cellAt(e.clientX, e.clientY);
+  if (!cell) return;
+  sel = cell;
+  const i = idx(cell.c, cell.r);
+  if (e.button === 2) { flag(i); return; }
+  if (e.button === 0) press = { i, t: 0, fired: false, touch: e.pointerType !== 'mouse' };
+});
+canvas.addEventListener('pointerup', e => {
+  const p = press; press = null;
+  if (!p || p.fired || boss) return;
+  const cell = cellAt(e.clientX, e.clientY);
+  if (cell && idx(cell.c, cell.r) === p.i) act(p.i);
+});
+canvas.addEventListener('pointercancel', () => { press = null; });
+window.addEventListener('blur', () => { press = null; });
+const MOVES = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
+window.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { e.preventDefault(); toggleBoss(); return; }
+  if (boss) return;
+  if (e.code === 'KeyM') {
+    muted = !muted; ensureAudio();
+    note = muted ? '声音: 关' : '声音: 开'; noteT = 1.2; return;
+  }
+  const mv = MOVES[e.key];
+  if (mv) {
+    e.preventDefault();
+    sel = { c: Math.max(0, Math.min(board.cols - 1, sel.c + mv[0])), r: Math.max(0, Math.min(board.rows - 1, sel.r + mv[1])) };
+    return;
+  }
+  if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); ensureAudio(); act(idx(sel.c, sel.r)); return; }
+  if (e.code === 'KeyF') { flag(idx(sel.c, sel.r)); return; }
+  if (e.key === 'PageUp' || e.key === 'PageDown') { e.preventDefault(); switchLevel(level + (e.key === 'PageDown' ? 1 : -1)); }
+});
+
+let lastT = 0;
+function loop(now) {
+  const dt = Math.min(0.1, (now - lastT) / 1000 || 0);
+  lastT = now;
+  update(dt); draw();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+// 主站在水合后才监听消息，单发的 ready 可能丢；重复的 ready 主站会忽略。每次 ready 后跟一条 disguise。
+// start 在一局的第一次翻格时才发。
+function announce() { emitMoYuFunEvent('ready'); emitMoYuFunDisguise('excel', TITLE); }
+announce();
+for (const ms of [500, 2000, 5000]) setTimeout(announce, ms);
+</script>
+</body>
+</html>
