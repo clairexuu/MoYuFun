@@ -1,0 +1,29 @@
+{
+  "slug": "sheet-snake",
+  "name": "表格贪吃蛇",
+  "shortDescription": "长得像 Excel 和 VS Code 的贪吃蛇，坐在工位上也能玩。",
+  "description": "选中的单元格就是蛇头：用方向键在销售汇总表里穿行，吃掉标红的单元格变长，黄色单元格是限时奖励，越早吃分越高。越吃越快，撞墙就是 #REF!。按 F2 切换成 VS Code 代码编辑器，按 Esc 一键隐藏。",
+  "tags": ["休闲", "贪吃蛇", "伪装", "单人"],
+  "controls": [
+    { "input": "方向键 / WASD", "action": "转向" },
+    { "input": "滑动屏幕", "action": "转向" },
+    { "input": "空格 / 轻点", "action": "开始 / 结束后重来" },
+    { "input": "F2", "action": "切换 Excel / VS Code 外观" },
+    { "input": "Esc", "action": "老板键：隐藏游戏并暂停" },
+    { "input": "M", "action": "开启或关闭声音（默认关闭）" }
+  ],
+  "cover": { "symbol": "蛇", "eyebrow": "SHEET SNAKE", "accent": "#217346", "accentSecondary": "#007acc" },
+  "sortOrder": 5,
+  "achievements": [
+    { "key": "len_10", "name": "小计", "description": "蛇身长到 10 格。", "symbol": "计" },
+    { "key": "len_30", "name": "合计", "description": "蛇身长到 30 格。", "symbol": "合" },
+    { "key": "bonus_3", "name": "超额完成", "description": "一局吃到 3 个黄色限时奖励。", "symbol": "超" },
+    { "key": "full_speed", "name": "满负荷", "description": "达到最高速度。", "symbol": "满" },
+    { "key": "score_500", "name": "季度冲刺", "description": "一局得到 500 分。", "symbol": "冲" }
+  ],
+  "stats": [
+    { "key": "rounds", "name": "对局", "maxPerRound": 1 },
+    { "key": "foods", "name": "吃到", "maxPerRound": 1200 },
+    { "key": "bonus", "name": "限时奖励", "maxPerRound": 1200 }
+  ]
+}
