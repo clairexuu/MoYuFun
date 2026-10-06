@@ -1,6 +1,6 @@
 # Office camouflage
 
-**Status:** In progress (M1, M2 done 2026-10-05). Milestones: M1 ☑ · M2 ☑ · M3 ☐ · M4 ☐ · M5 ☐ · M6 ☐ · M7 ☐
+**Status:** In progress: everything but M6 done 2026-10-05; the site's camouflage mode reaches production when `main` is pushed (M6). Milestones: M1 ☑ · M2 ☑ · M3 ☑ · M4 ☑ · M5 ☑ · M6 ☐ · M7 ☑
 
 MoYuFun games are played at work, so they should look like work. A camouflaged game draws itself as office software (an Excel sheet or a VS Code window), hides behind a boss key, and stays silent until asked. The site adds a 伪装 mode on the play page: the game fills the browser window with no MoYuFun chrome, and the browser tab's title and icon match the disguise. Games that can't be disguised (real-time action) keep working as before.
 
