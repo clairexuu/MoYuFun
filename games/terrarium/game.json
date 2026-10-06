@@ -1,30 +1,112 @@
 {
   "slug": "terrarium",
   "name": "生态瓶",
-  "shortDescription": "封瓶前定好一切，然后只能看着它活下去，或者崩溃。",
-  "description": "用 100 贝壳往玻璃瓶里放藻类、水草、苔藓、小虾、螺、跳虫和细菌，铺上沙和炭，选好光照，然后封上盖子。之后的一百天你只能旁观：氧气、养分和废物此消彼长，任何失衡都可能让它崩溃。撑到第 100 天就算成功；失败时会告诉你它是怎么死的。",
-  "tags": ["模拟", "生态", "单人"],
-  "controls": [
-    { "input": "鼠标 / 触摸", "action": "增减生物、选光照、封瓶、调速度" },
-    { "input": "Enter", "action": "封瓶 / 再来一瓶" },
-    { "input": "空格", "action": "暂停或继续" },
-    { "input": "1 / 2 / 3", "action": "1× / 2× / 4× 速度" },
-    { "input": "S", "action": "跳到结局" },
-    { "input": "M", "action": "静音或恢复声音" }
+  "shortDescription": "五个实验瓶，配好物种，再盯着图表在它崩溃前出手。",
+  "description": "一份看起来像 Excel 的生态瓶实验报告。每个实验有不同的预算、光照、必选物种和扰动（空调停机、水草病害）。在表格里配好藻类、水草、苔藓、小虾、螺、跳虫、细菌、沙和炭，开始实验后盯住监测面板和折线图：O₂ 变黄就开盖通气，藻类疯长就遮光一天，植物不行了就补种水草。三种干预每瓶各一次，按目标拿 1–3 星。",
+  "tags": [
+    "模拟",
+    "生态",
+    "单人"
   ],
-  "cover": { "symbol": "瓶", "eyebrow": "SEALED ECOSYSTEM", "accent": "#4caf7a", "accentSecondary": "#a3e0ff" },
+  "controls": [
+    {
+      "input": "鼠标 / 触摸",
+      "action": "点 ▲▼ 调数量、选光照、开始实验、执行干预、切换实验"
+    },
+    {
+      "input": "↑ ↓ / + −",
+      "action": "选行 / 增减数量"
+    },
+    {
+      "input": "Enter",
+      "action": "开始实验 / 再做一次"
+    },
+    {
+      "input": "空格 / 1 2 3",
+      "action": "暂停 / 1× 2× 4× 速度"
+    },
+    {
+      "input": "Q / W / E",
+      "action": "补种水草 / 开盖通气 / 遮光一天"
+    },
+    {
+      "input": "PageUp / PageDown",
+      "action": "切换实验"
+    },
+    {
+      "input": "Esc",
+      "action": "老板键"
+    },
+    {
+      "input": "M",
+      "action": "开关声音（默认关）"
+    }
+  ],
+  "cover": {
+    "symbol": "瓶",
+    "eyebrow": "SEALED ECOSYSTEM",
+    "accent": "#4caf7a",
+    "accentSecondary": "#a3e0ff"
+  },
   "sortOrder": 190,
   "achievements": [
-    { "key": "sealed_100", "name": "百日生机", "description": "生态瓶撑到第 100 天。", "symbol": "生" },
-    { "key": "full_house", "name": "七族同瓶", "description": "第 100 天时七种生物全部存活。", "symbol": "七" },
-    { "key": "frugal", "name": "小本经营", "description": "花费不超过 60 贝壳，撑到第 100 天。", "symbol": "俭" },
-    { "key": "shade_win", "name": "背阴之地", "description": "选背阴光照，撑到第 100 天。", "symbol": "阴" },
-    { "key": "calm", "name": "风平浪静", "description": "100 天里每天都健康：氧气不低于 8，废物低于 15。", "symbol": "静" }
+    {
+      "key": "first_star",
+      "name": "初步结论",
+      "description": "任一实验拿到至少一星。",
+      "symbol": "初"
+    },
+    {
+      "key": "full_marks",
+      "name": "满分报告",
+      "description": "任一实验拿到三星。",
+      "symbol": "满"
+    },
+    {
+      "key": "rescue",
+      "name": "绝处逢生",
+      "description": "在 O₂ 低于 4 时出手干预，最后仍拿到至少一星。",
+      "symbol": "救"
+    },
+    {
+      "key": "all_hands",
+      "name": "三管齐下",
+      "description": "一瓶里三种干预都用上，并拿到至少一星。",
+      "symbol": "三"
+    },
+    {
+      "key": "hands_off",
+      "name": "无为而治",
+      "description": "不用任何干预拿到三星。",
+      "symbol": "无"
+    },
+    {
+      "key": "finale",
+      "name": "综合实验",
+      "description": "实验 5 拿到三星。",
+      "symbol": "综"
+    }
   ],
   "stats": [
-    { "key": "rounds", "name": "封瓶", "maxPerRound": 1 },
-    { "key": "wins", "name": "成功", "maxPerRound": 1 },
-    { "key": "days", "name": "存活天数", "maxPerRound": 100 },
-    { "key": "species", "name": "存活物种", "maxPerRound": 7 }
+    {
+      "key": "rounds",
+      "name": "实验",
+      "maxPerRound": 1
+    },
+    {
+      "key": "wins",
+      "name": "达标",
+      "maxPerRound": 1
+    },
+    {
+      "key": "stars",
+      "name": "星数",
+      "maxPerRound": 3
+    },
+    {
+      "key": "days",
+      "name": "存活天数",
+      "maxPerRound": 100
+    }
   ]
 }
